@@ -42,7 +42,8 @@ def feature_matrix(obs: pd.DataFrame, labels: pd.DataFrame, ctx: pd.DataFrame, e
     X["tier_a"] = (labels["tier"].reindex(X.index) == "A").astype(int)
     for c in ("class", "subtype"):
         X[c] = X[c].astype("category")
-    return X[X["n_dates"] >= MIN_DATES]
+    # n_dates depends on the roof's home tile (acquisition count), not on the roof: filter only
+    return X[X["n_dates"] >= MIN_DATES].drop(columns="n_dates")
 
 
 def train_and_score(X: pd.DataFrame, y: np.ndarray, train_idx: pd.Index, groups, seeds=(0, 1, 2)) -> pd.Series:

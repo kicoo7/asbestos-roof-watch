@@ -6,6 +6,9 @@ import pandas as pd
 
 CHANGE_BANDS = ["blue", "green", "red", "nir"]  # 10 m bands, usable for both tiers
 
+# Operating point used by label cleaning and the weekly run; chosen in T2.2 (docs/RESULTS.md).
+DETECT_PARAMS = dict(normalize=True, rel_floor=0.1, threshold=4.0)
+
 
 def _bright(s) -> float:
     return float(np.mean([s["blue"], s["green"], s["red"], s["nir"]]))

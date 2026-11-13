@@ -24,7 +24,7 @@ import geopandas as gpd  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from roofwatch.change import detect_changes  # noqa: E402
+from roofwatch.change import DETECT_PARAMS, detect_changes  # noqa: E402
 from roofwatch.extract import COLLECTION, STAC_URL, extract_scene, tile_code  # noqa: E402
 from roofwatch.pipeline import clean_labels, feature_matrix, load_all_observations, train_and_score  # noqa: E402
 from roofwatch.store import append_observations, load_observations  # noqa: E402
@@ -138,7 +138,7 @@ def main():
         allobs = load_all_observations(OUT)
         allobs = allobs[allobs["date"] <= run_date]
 
-        events = detect_changes(allobs)
+        events = detect_changes(allobs, **DETECT_PARAMS)
         if not events.empty:
             events = events[events["confirmed_on"] <= run_date]
         reg_path = OUT / "change_events.parquet"

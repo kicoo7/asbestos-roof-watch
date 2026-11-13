@@ -12,7 +12,7 @@ from sklearn.metrics import average_precision_score, precision_recall_curve, roc
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from roofwatch.change import detect_changes
+from roofwatch.change import DETECT_PARAMS, detect_changes
 from roofwatch.pipeline import clean_labels, feature_matrix, load_all_observations
 from roofwatch.model import grouped_oof_predictions, lgbm_fit_predict, precision_at_recall
 from roofwatch.observe import BANDS
@@ -26,7 +26,7 @@ obs = load_observations(OUT / "observations.parquet")
 allobs = load_all_observations(OUT)
 
 # --- T1.3: drop AC labels whose roof changed after the label date -------------------------
-ev = detect_changes(allobs)
+ev = detect_changes(allobs, **DETECT_PARAMS)
 labels = inv.set_index("roof_id")[["label", "label_date", "tier", "comune"]].copy()
 labels["label_date"] = pd.to_datetime(labels["label_date"])
 labels["clean_label"] = clean_labels(labels, ev)
@@ -34,6 +34,7 @@ label_table = pd.crosstab(labels["clean_label"], labels["tier"], margins=True)
 
 # --- features -----------------------------------------------------------------------------
 X = feature_matrix(obs, labels, ctx, END)
+feat_dates = obs[obs["date"] > END - pd.DateOffset(months=12)].groupby("roof_id").size()
 lab = labels["clean_label"].reindex(X.index)
 train = X[lab.isin(["ac", "none"])]
 y = (lab.reindex(train.index) == "ac").astype(int).values
@@ -99,5 +100,5 @@ res.to_csv(OUT / "classifier_results.csv", index=False)
 label_table.to_csv(OUT / "label_table.csv")
 single.head(15).to_csv(OUT / "single_feature_auc.csv")
 print(label_table); print(res.round(3).to_string(index=False)); print(single.head(12).round(3))
-print("observation dates per roof (12 m):", X["n_dates"].describe().round(1).to_dict())
+print("observation dates per roof (12 m):", feat_dates.describe().round(1).to_dict())
 print("change events used for label cleaning:", len(ev))

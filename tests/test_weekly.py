@@ -55,3 +55,19 @@ def test_record_news_stores_old_history_without_reporting_it():
     ev = _ev([(1, "2019-05-01", "2019-05-11", "dark_pv")])
     known, news = record_news(ev, None, pd.Timestamp("2026-11-13"))
     assert news.empty and len(known) == 1 and known["reported_on"].isna().all()
+
+
+def test_new_events_same_roof_shifted_date_is_not_new():
+    # a late-arriving scene moves the detected date by a few weeks: same change, not news
+    known = _ev([(2, "2026-10-01", "2026-10-06", "bright_new_roof")])
+    ev = _ev([(2, "2026-10-20", "2026-10-25", "bright_new_roof")])
+    assert new_events(ev, known, run_date=pd.Timestamp("2026-11-13"), same_event_days=60).empty
+
+
+def test_record_news_does_not_register_shifted_duplicates():
+    from roofwatch.weekly import record_news
+
+    day = pd.Timestamp("2026-11-13")
+    known, _ = record_news(_ev([(2, "2026-10-01", "2026-10-06", "bright_new_roof")]), None, day)
+    known2, news = record_news(_ev([(2, "2026-10-20", "2026-10-25", "bright_new_roof")]), known, day)
+    assert len(known2) == 1
