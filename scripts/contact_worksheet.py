@@ -39,7 +39,7 @@ def cell_parcels(c):
         b = (c[0] * CELL_DEG - 0.001, c[1] * CELL_DEG - 0.001, (c[0] + 1) * CELL_DEG + 0.001, (c[1] + 1) * CELL_DEG + 0.001)
         g = fetch_parcels(b)
         tmp = f.with_name(f".{f.stem}.tmp.gpkg")  # atomic: an interrupted run never leaves a half-written cache file
-        (g if len(g) else gpd.GeoDataFrame({"ref": []}, geometry=[], crs=6706)).to_file(tmp, driver="GPKG")
+        (g if len(g) else gpd.GeoDataFrame({"ref": []}, geometry=[], crs=6706)).to_file(tmp, layer="parcels", driver="GPKG")
         tmp.replace(f)
     return gpd.read_file(f)
 
