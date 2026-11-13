@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+.DS_Store
+
+# Data and outputs stay local (building-level results are private, see docs/PLAN.md section 7)
+data/raw/*
+data/processed/*
+outputs/*
+!**/.gitkeep
