@@ -70,3 +70,18 @@ def join_labels(
     out["label"] = out["label"].fillna("none")
     out["ac_m2"] = out["ac_m2"].fillna(0.0)
     return out
+
+
+def polygon_cover(roofs: gpd.GeoDataFrame, polys: gpd.GeoDataFrame) -> pd.Series:
+    """Fraction of each roof's area covered by the union of `polys` (index = roof_id)."""
+    out = pd.Series(0.0, index=roofs["roof_id"].values)
+    if len(polys) == 0:
+        return out
+    polys = polys.set_geometry(shapely.make_valid(polys.geometry.values))
+    roofs = roofs.set_geometry(shapely.make_valid(roofs.geometry.values))
+    cand = gpd.sjoin(roofs[["roof_id", "geometry"]], polys[["geometry"]], predicate="intersects")
+    for rid, idx in cand.groupby("roof_id")["index_right"]:
+        roof = roofs.geometry[roofs["roof_id"] == rid].iloc[0]
+        covered = shapely.union_all(polys.geometry.loc[idx.unique()].values).intersection(roof).area
+        out.loc[rid] = covered / roof.area if roof.area > 0 else 0.0
+    return out

@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ipykernel"]
+aerial = ["torch", "torchvision", "timm", "pillow", "duckdb"]
 
 [build-system]
 requires = ["setuptools>=68"]
