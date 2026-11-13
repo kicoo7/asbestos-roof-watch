@@ -1,8 +1,62 @@
 # Results: Turin pilot (Piedmont)
 
-Run date 13 Nov 2026. Pilot: 19 municipalities, 546 km2. Labels from ARPA Piemonte. Sentinel-2 L2A from Earth Search (`sentinel-2-c1-l2a`). Numbers come from `scripts/train_eval.py` and `scripts/validate_change.py`. Charts and tables are in `outputs/` (not committed).
+Run date 13 Nov 2026 (Sentinel-2, Turin) and 14 Nov 2026 (aerial, Brescia). Sentinel-2 pilot: 19 municipalities, 546 km2. Labels from ARPA Piemonte. Sentinel-2 L2A from Earth Search (`sentinel-2-c1-l2a`). Numbers come from `scripts/train_eval.py` and `scripts/validate_change.py`. Charts and tables are in `outputs/` (not committed).
 
-## Decision (T1.8): no-go for asbestos detection
+## Update 14 Nov 2026: aerial photos pass the gate (Brescia pilot)
+
+Following the plan's fail branch, detection was retried on free aerial orthophotos instead of Sentinel-2.
+
+**Setup**
+
+| | |
+|---|---|
+| Imagery | Ortofoto AGEA 2024, CC BY 4.0, from AGEA's public image service. Cached tiles at level 18 (~0.42 m on the ground, RGB); full-resolution export returns a placeholder |
+| Labels | Lombardy asbestos mapping, 2020 survey (layer 1): 4,207 polygons in 16 Brescia-plain municipalities. Roofs come from Overture footprints inside the surveyed area. A roof counts as AC when AC polygons cover >= 50% of it, and polygons covering 5-50% are excluded |
+| Roofs | 26,632 roofs of at least 100 m2 (2,178 AC) |
+| Model | DINOv2 ViT-S/14 image features (averaged over 4 rotations) + LightGBM; 5-fold GroupKFold by municipality |
+
+**Asbestos results (held-out municipalities)**
+
+| Size | AC | Base rate | Average precision | Precision @ recall 0.5 | Precision @ recall 0.8 | Mapped AC among top 25 |
+|---|---|---|---|---|---|---|
+| 100-500 m2 | 1,197 | 0.056 | 0.47 | 0.47 | 0.23 | 21 |
+| 500-2,000 m2 | 818 | 0.180 | 0.71 | **0.79** | 0.52 | 24 |
+| >= 2,000 m2 | 163 | 0.197 | 0.60 | **0.66** | 0.47 | 18 |
+
+The linear probe gives 0.76 and 0.54 on the two larger bands. LightGBM was chosen on the same folds, which flatters it slightly.
+
+What the numbers mean:
+- **Gate:** passes for roofs >= 500 m2 (bar: 0.6 at recall 0.5). Sentinel-2 reached 0.30 on large roofs in Turin. Roofs of 100-500 m2 do not pass, but the top of their ranking is still mostly AC.
+- **Measured accuracy is a lower bound.** 23 of the 24 top-scored roofs are mapped AC, and the 24th looks identical. The mapped AC roofs scored lowest are mostly red tiles, new white roofs or solar panels in 2024, i.e. labels gone stale since the 2020 survey. Only 39 AC labels now carry panels (solar detector, score >= 0.9); removing them changes precision by under 0.01 (`outputs/aerial_results_clean.csv`). Most stale labels are therefore replacements by roofs other than solar.
+- **Small sample at the top.** 163 AC roofs >= 2,000 m2 is small; 0.66 is uncertain.
+- **One area only.** Transfer to other parts of Lombardy, other years or other regions is untested.
+
+**Solar-panel detector**
+
+Labels: Lombardy layer 4. Positives are 1,926 roofs replaced with PV by 2018. Negatives are 3,000 roofs replaced without PV and 3,000 still AC in 2018. 302 municipalities, region-wide.
+
+| Negatives | Average precision | Precision @ recall 0.8 |
+|---|---|---|
+| replaced, no PV | 0.89 | 0.89 |
+| still AC in 2018 | 0.92 | 0.92 |
+| both | 0.85 | 0.83 |
+
+The 12 highest-scored "no PV" roofs all show panels in 2024, installed after the 2018 labels. The 12 lowest-scored "PV" roofs show none. So these numbers are also lower bounds.
+
+Applied to the Brescia pilot, 4,418 of 5,781 roofs >= 500 m2 show no panels (about 5.4 km2 of roof).
+
+**Owner and occupant linkage** (`scripts/contact_worksheet.py`, `docs/CONTACTING.md`)
+
+Each candidate roof (score >= 0.7, >= 500 m2) gets three things:
+- its cadastral parcel (town code, sheet, parcel) from the Agenzia delle Entrate's open cadastral WFS (CC BY 4.0)
+- the nearest address from Overture
+- the business located at the building from Overture places
+
+Owner names are not open data. Look them up one at a time with a visura per immobile. Phones and emails are left out on purpose; see `docs/CONTACTING.md`.
+
+Outputs (local, not committed): `outputs/aerial_map.html`, `outputs/contact_worksheet.csv`, `outputs/aerial_top_predictions.png`, `outputs/pv_top_predictions.png`.
+
+## Decision (T1.8): no-go for asbestos detection from Sentinel-2
 
 The bar in PLAN 4.4 was precision >= 0.6 at recall >= 0.5 on held-out municipalities, tier A. The pilot reaches **0.30** (0.23 with uncleaned labels).
 
