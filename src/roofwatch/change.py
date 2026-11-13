@@ -38,6 +38,9 @@ def detect_changes(
     window: int = 8,
     floor: float = 0.02,
     bands=CHANGE_BANDS,
+    normalize: bool = False,
+    rel_floor: float = 0.1,
+    min_roofs_per_date: int = 30,
 ) -> pd.DataFrame:
     """Change events: a roof departs from its own baseline on 2 consecutive clear dates.
 
@@ -45,11 +48,25 @@ def detect_changes(
     median of up to `window` earlier observations in the current state; the scale is the
     larger of 1.4826 x MAD and `floor` (reflectance units). After a change the baseline
     restarts from the new state, so one new state gives one event.
+
+    With `normalize`, each band is divided by that date's median over all roofs before
+    scoring (dates with fewer than `min_roofs_per_date` roofs are skipped), so haze,
+    illumination and seasonal shifts shared by all roofs cancel out. The floor is then
+    `rel_floor` (a fraction). Before/after values and change types stay in reflectance.
     """
     extra = [b for b in ("swir16", "swir22") if b in obs.columns]
+    obs = obs.sort_values("date")
+    if normalize:
+        counts = obs.groupby("date")["roof_id"].transform("size")
+        obs = obs[counts >= min_roofs_per_date]
+        med = obs.groupby("date")[bands].transform("median")
+        obs = obs.join((obs[bands] / med).add_prefix("n_"))
+        score_bands, floor = [f"n_{b}" for b in bands], rel_floor
+    else:
+        score_bands = bands
     events = []
-    for roof_id, g in obs.sort_values("date").groupby("roof_id", sort=False):
-        X = g[bands].to_numpy(float)
+    for roof_id, g in obs.groupby("roof_id", sort=False):
+        X = g[score_bands].to_numpy(float)
         dates = g["date"].to_numpy()
         state_start, i, n = 0, 0, len(g)
         z = np.zeros(n)
@@ -78,10 +95,8 @@ def detect_changes(
             sign1 = float(np.sign(np.mean(X[i + 1] - base)))
             if z1 > threshold and sign1 == s0[1]:
                 rows = g.iloc[[i, i + 1]]
-                before = dict(zip(bands, base))
                 hist_rows = g.iloc[max(state_start, i - window):i]
-                for b in extra:
-                    before[b] = float(hist_rows[b].median())
+                before = {b: float(hist_rows[b].median()) for b in bands + extra}
                 after = rows[bands + extra].mean().to_dict()
                 events.append({
                     "roof_id": roof_id, "date": pd.Timestamp(dates[i]), "confirmed_on": pd.Timestamp(dates[i + 1]),

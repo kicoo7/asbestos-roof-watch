@@ -21,26 +21,25 @@ MIN_START = pd.Timestamp("2018-01-01")  # leave a year of archive for a baseline
 removed = inv[(inv.label == "removed") & (inv.label_date >= pd.Timestamp("2019-01-01"))].index
 still_ac = inv[(inv.label == "ac") & (inv.label_date >= MIN_START)].index
 roof_years = ((inv.loc[still_ac, "label_date"] - first_obs.reindex(still_ac)).dt.days / 365.25).clip(lower=0)
-subset = obs[obs.roof_id.isin(removed.union(still_ac))]
 print(f"removed roofs (inspected 2019+): {len(removed)}; still-AC roofs inspected 2018+: {len(still_ac)}, {roof_years.sum():.0f} roof-years")
 
+# normalisation needs every roof on a date, not only the validation subset
+configs = [dict(normalize=False, floor=f, threshold=t) for f in (0.02, 0.03) for t in (3, 4, 6, 8)]
+configs += [dict(normalize=True, rel_floor=f, threshold=t) for f in (0.08, 0.1, 0.15) for t in (3, 4, 6, 8)]
 rows, best = [], None
-for floor in (0.02, 0.03):
-    for thr in (2.5, 3, 4, 5, 6, 8):
-        ev = detect_changes(subset, threshold=thr, floor=floor).join(inv[["label_date", "tier"]], on="roof_id")
+for cfg in configs:
+        ev = detect_changes(obs, **cfg)
+        ev = ev[ev.roof_id.isin(removed.union(still_ac))].join(inv[["label_date", "tier"]], on="roof_id")
         hit = ev[ev.roof_id.isin(removed) & (ev.date <= ev.label_date + SLACK)]
         fa = ev[ev.roof_id.isin(still_ac) & (ev.confirmed_on <= ev.label_date)]
-        r = {"floor": floor, "threshold": thr}
+        r = dict(cfg)
         for t in ("A", "B", "all"):
             rm = removed if t == "all" else removed[inv.loc[removed, "tier"] == t]
             sa = still_ac if t == "all" else still_ac[inv.loc[still_ac, "tier"] == t]
             r[f"detect_{t}"] = hit[hit.roof_id.isin(rm)].roof_id.nunique() / max(len(rm), 1)
             r[f"fa_per_1000_roof_yr_{t}"] = 1000 * len(fa[fa.roof_id.isin(sa)]) / max(roof_years.reindex(sa).sum(), 1e-9)
         rows.append(r)
-        if (floor, thr) == (0.02, 3):
-            best = hit
+        r["types_detected"] = hit.drop_duplicates("roof_id").change_type.value_counts().to_dict()
 res = pd.DataFrame(rows)
 res.to_csv(OUT / "change_validation.csv", index=False)
 print(res.round(3).to_string(index=False))
-if best is not None and len(best):
-    print("change types on detected remediated roofs (floor .02, thr 3):", best.drop_duplicates("roof_id").change_type.value_counts().to_dict())
