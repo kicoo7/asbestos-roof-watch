@@ -4,7 +4,7 @@ Checked on 13 Nov 2026. Raw files live in `data/raw/` and are not committed.
 
 ## Asbestos-cement roof labels: ARPA Piemonte
 
-The pilot uses Piedmont, not Lombardy. ARPA Lombardia's 2007/2012 AC roof map is not publicly downloadable. It is not on dati.lombardia.it or on the regional ArcGIS services, and the regional asbestos plan (PRAL) says it is distributed to Regione, ARPA and ASL only. To use it, request it from ARPA Lombardia.
+The pilot uses Piedmont, not Lombardy. I could not find a public download of ARPA Lombardia's AC roof map. It is not on dati.lombardia.it or on the regional ArcGIS services, and the regional asbestos plan (PRAL) says the 2007/2012 map is distributed to Regione, ARPA and ASL. However, a file that appeared in `outputs/validation/brescia_sample_50.csv` during this work (not produced by this pipeline) cites ARPA Lombardia layers "Mappatura 2020 (layer 1)" and "Mappature precedenti (layer 4)" with object IDs. So a newer, queryable Lombardy service probably exists. With its URL, `labels.fetch_arcgis_layer` can read it and the pilot can move to Lombardy.
 
 | Item | Value |
 |---|---|
