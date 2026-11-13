@@ -1,4 +1,4 @@
-# Results: Turin pilot (Piedmont)
+# Results: Turin (Sentinel-2) and Brescia (aerial) pilots
 
 Run date 13 Nov 2026 (Sentinel-2, Turin) and 14 Nov 2026 (aerial, Brescia). Sentinel-2 pilot: 19 municipalities, 546 km2. Labels from ARPA Piemonte. Sentinel-2 L2A from Earth Search (`sentinel-2-c1-l2a`). Numbers come from `scripts/train_eval.py` and `scripts/validate_change.py`. Charts and tables are in `outputs/` (not committed).
 
