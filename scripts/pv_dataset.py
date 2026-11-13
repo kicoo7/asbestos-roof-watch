@@ -28,7 +28,9 @@ if not out_gpkg.exists():
     allp = pd.concat([pv, other], ignore_index=True)
     allp["cls"] = allp["decodifica"].map(decode_older)
     allp = allp[allp["cls"].isin(["pv", "changed", "unchanged"]) & (allp.area >= 100)]
-    neg = allp[allp["cls"] != "pv"].groupby("cls", group_keys=False).apply(lambda g: g.sample(min(N_NEG, len(g)), random_state=0))
+    # (groupby().apply drops the grouping column in recent pandas, so sample each class explicitly)
+    neg = pd.concat([allp[allp["cls"] == c].sample(min(N_NEG, int((allp["cls"] == c).sum())), random_state=0)
+                     for c in ("changed", "unchanged")])
     ds = gpd.GeoDataFrame(pd.concat([allp[allp["cls"] == "pv"], neg]), crs=allp.crs).reset_index(drop=True)
     ds["roof_id"] = range(len(ds))
     ds["area_m2"] = ds.area

@@ -9,6 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 THRESH = 0.7  # ~53-59% of flags are mapped AC for roofs >= 500 m2, finding 70-75% of them (held-out towns)
 roofs = gpd.read_file(ROOT / "data/processed/lombardy_roofs.gpkg", layer="roofs")
 oof = pd.read_parquet(ROOT / "outputs/aerial_oof.parquet")[["roof_id", "p"]]
+pvs = pd.read_parquet(ROOT / "outputs/pilot_pv_scores.parquet")
+roofs = roofs.merge(pvs, on="roof_id", how="left")
+solar = roofs[(roofs.area_m2 >= 500) & (roofs.p_pv < 0.2)].to_crs(4326).copy()  # large roofs, no panels in 2024
 r = roofs.merge(oof, on="roof_id", how="inner")
 r["group"] = None
 r.loc[(r.label == "ac") & (r.p >= THRESH), "group"] = "agree"
@@ -16,6 +19,7 @@ r.loc[(r.label == "ac") & (r.p < THRESH), "group"] = "mapped_not_seen"
 r.loc[(r.label == "none") & (r.p >= THRESH), "group"] = "suspected_new"
 r = r[r.group.notna()].to_crs(4326)
 r["p"] = r["p"].round(2)
+r["p_pv"] = r["p_pv"].round(2)
 r["area_m2"] = r["area_m2"].round(0)
 r["maps_link"] = [f"https://www.google.com/maps/@{p.y:.6f},{p.x:.6f},120m/data=!3m1!1e3" for p in r.representative_point()]
 NAMES = {"agree": "On ARPA map, model agrees", "mapped_not_seen": "On ARPA map, model does not see AC (replaced?)",
@@ -31,10 +35,16 @@ folium.TileLayer(tiles="https://geoportale.agea.gov.it/image/rest/services/AgEA/
 folium.TileLayer("OpenStreetMap", name="Map (OpenStreetMap)").add_to(m)
 for k in ["suspected_new", "mapped_not_seen", "agree"]:
     sub = r[r.group == k]
-    folium.GeoJson(sub[["comune", "area_m2", "size_band", "p", "maps_link", "geometry"]], name=f"{NAMES[k]} ({len(sub)})",
+    folium.GeoJson(sub[["comune", "area_m2", "size_band", "p", "p_pv", "maps_link", "geometry"]], name=f"{NAMES[k]} ({len(sub)})",
                    style_function=lambda f, col=COLORS[k]: {"color": col, "weight": 3, "fillColor": col, "fillOpacity": 0.2},
-                   tooltip=folium.GeoJsonTooltip(["comune", "area_m2", "size_band", "p"], aliases=["Municipality", "Roof m2", "Size", "Model score"]),
+                   tooltip=folium.GeoJsonTooltip(["comune", "area_m2", "size_band", "p", "p_pv"],
+                                                 aliases=["Municipality", "Roof m2", "Size", "Asbestos score", "Solar panels score"]),
                    popup=folium.GeoJsonPopup(["maps_link"], aliases=["Google satellite view"])).add_to(m)
+solar["area_m2"] = solar["area_m2"].round(0)
+solar["p_pv"] = solar["p_pv"].round(2)
+folium.GeoJson(solar[["comune", "area_m2", "p_pv", "geometry"]], name=f"Roofs >= 500 m2 with no solar panels in 2024 ({len(solar)})", show=False,
+               style_function=lambda f: {"color": "#1a9641", "weight": 2, "fillColor": "#1a9641", "fillOpacity": 0.15},
+               tooltip=folium.GeoJsonTooltip(["comune", "area_m2", "p_pv"], aliases=["Municipality", "Roof m2", "Solar panels score"])).add_to(m)
 legend = ("<div style='position:fixed;bottom:24px;left:10px;z-index:9999;background:white;padding:8px;max-width:calc(100vw - 40px);"
           "box-sizing:border-box;border:1px solid #999;font:13px sans-serif'><b>Aerial asbestos model, Brescia plain</b><br>"
           "Model: DINOv2 + LightGBM on AGEA 2024 photos; scores from held-out municipalities.<br>"

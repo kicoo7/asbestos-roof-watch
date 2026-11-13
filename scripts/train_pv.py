@@ -21,10 +21,12 @@ from sklearn.preprocessing import StandardScaler
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from roofwatch.lombardy import decode_older
 from roofwatch.model import grouped_oof_predictions, lgbm_fit_predict, precision_at_recall
 
 OUT = ROOT / "outputs"
 ds = gpd.read_file(ROOT / "data/processed/pv_roofs.gpkg", layer="roofs").set_index("roof_id")
+ds["cls"] = ds["decodifica"].map(decode_older)  # recompute: older datasets lost `cls` for negatives
 emb = pd.read_parquet(ROOT / "data/processed/pv_chip_embeddings.parquet").set_index("roof_id")
 df = ds[["cls", "COD_ISTATN", "area_m2"]].join(emb, how="inner")
 X = df[list(emb.columns)].copy()

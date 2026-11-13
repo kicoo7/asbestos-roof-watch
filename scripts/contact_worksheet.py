@@ -44,7 +44,7 @@ def cell_parcels(c):
     return gpd.read_file(f)
 
 
-with ThreadPoolExecutor(max_workers=3) as ex:
+with ThreadPoolExecutor(max_workers=6) as ex:  # the WFS answers in ~15 s per request regardless of size
     parts = list(ex.map(cell_parcels, cells))
 parcels = pd.concat([p for p in parts if len(p)], ignore_index=True).drop_duplicates("ref")
 parcels = gpd.GeoDataFrame(parcels, geometry="geometry", crs=6706)
@@ -71,6 +71,13 @@ jp = jp.sort_values(["roof_id", "business_dist_m", "confidence"], ascending=[Tru
 r = r.merge(jp[["roof_id", "name", "category", "website", "business_address", "business_dist_m"]].rename(
     columns={"name": "business_name", "category": "business_category", "website": "business_website"}), on="roof_id", how="left")
 
+# solar panels visible in the 2024 photo (score from scripts/score_pv_pilot.py)
+pvs = ROOT / "outputs/pilot_pv_scores.parquet"
+if pvs.exists():
+    r = r.merge(pd.read_parquet(pvs).rename(columns={"p_pv": "solar_panels_score"}), on="roof_id", how="left")
+else:
+    r["solar_panels_score"] = np.nan
+
 pt = r.to_crs(4326).representative_point()
 r["google_maps"] = [f"https://www.google.com/maps/@{p.y:.6f},{p.x:.6f},120m/data=!3m1!1e3" for p in pt]
 r["lat"], r["lon"] = pt.y.round(6).values, pt.x.round(6).values
@@ -78,13 +85,14 @@ for c in ["owner_from_visura", "owner_type", "contact_method", "contact_date", "
     r[c] = ""
 r = r.sort_values(["area_m2"], ascending=False).reset_index(drop=True)
 r.insert(0, "priority", range(1, len(r) + 1))
-cols = ["priority", "roof_id", "status", "comune", "area_m2", "p", "comune_code", "foglio", "particella", "parcel_ref", "parcel_share",
+cols = ["priority", "roof_id", "status", "comune", "area_m2", "p", "solar_panels_score", "comune_code", "foglio", "particella", "parcel_ref", "parcel_share",
         "other_parcels", "address", "address_dist_m", "business_name", "business_category", "business_website", "business_address",
         "business_dist_m", "lat", "lon", "google_maps", "owner_from_visura", "owner_type", "contact_method", "contact_date",
         "outcome", "do_not_contact", "notes"]
 out = r[cols].rename(columns={"p": "model_score"})
 out["area_m2"] = out["area_m2"].round(0)
 out["model_score"] = out["model_score"].round(2)
+out["solar_panels_score"] = out["solar_panels_score"].round(2)
 for c in ("parcel_share", "address_dist_m", "business_dist_m"):
     out[c] = out[c].round(2 if c == "parcel_share" else 0)
 out.to_csv(ROOT / "outputs/contact_worksheet.csv", index=False)
