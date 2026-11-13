@@ -105,8 +105,15 @@ def write_map(roofs: gpd.GeoDataFrame, run_date, path):
     g["ac_probability"] = g["ac_probability"].round(2)
     g["area_m2"] = g["area_m2"].round(0)
     c = g.union_all().centroid
-    m = folium.Map(location=[c.y, c.x], zoom_start=12, tiles="CartoDB positron")
-    title = (f"<div style='position:fixed;top:10px;left:50px;z-index:9999;background:white;padding:8px;"
+    m = folium.Map(location=[c.y, c.x], zoom_start=12, tiles=None)
+    # Keyless basemaps (CARTO now requires an API key)
+    folium.TileLayer("OpenStreetMap", name="Map (OpenStreetMap)").add_to(m)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Imagery &copy; Esri, Maxar, Earthstar Geographics", name="Satellite (Esri)", max_zoom=19,
+    ).add_to(m)
+    title = (f"<div style='position:fixed;bottom:24px;left:10px;z-index:9999;background:white;padding:8px;"
+             f"max-width:calc(100vw - 40px);box-sizing:border-box;"
              f"border:1px solid #999;font:13px sans-serif'><b>Roof watch, run {run_date.date()}</b><br>"
              "All asbestos results are <b>suspected</b>; only inspection or lab test confirms.<br>"
              + "".join(f"<span style='color:{v}'>&#9632;</span> {k} ({(g.status == k).sum()})<br>"
