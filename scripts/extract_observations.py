@@ -15,6 +15,7 @@ from pystac_client import Client
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from roofwatch.extract import COLLECTION, STAC_URL, extract_scene, tile_code
+from roofwatch.lock import run_lock
 from roofwatch.store import append_observations
 
 ap = argparse.ArgumentParser()
@@ -50,18 +51,20 @@ def run(it):
             err = e; time.sleep(5 * (attempt + 1))
     return it.id, err
 
-buf, t0 = [], time.time()
-with ThreadPoolExecutor(max_workers=a.workers) as ex:
-    futs = [ex.submit(run, it) for it in todo]
-    for n, f in enumerate(as_completed(futs), 1):
-        sid, res = f.result()
-        if isinstance(res, Exception):
-            print("FAILED", sid, repr(res)[:200], flush=True); continue
-        buf.append((sid, res))
-        if len(buf) >= 10 or n == len(todo):
-            frames = [r for _, r in buf if not r.empty]
-            added = append_observations(a.out, pd.concat(frames)) if frames else 0
-            with open(done_log, "a") as fh:
-                fh.write("".join(s + "\n" for s, _ in buf))
-            print(f"{n}/{len(todo)} scenes, +{added} rows, {time.time()-t0:.0f}s", flush=True)
-            buf = []
+lock = run_lock(ROOT / "outputs/.roofwatch.lock")
+with lock:
+    buf, t0 = [], time.time()
+    with ThreadPoolExecutor(max_workers=a.workers) as ex:
+        futs = [ex.submit(run, it) for it in todo]
+        for n, f in enumerate(as_completed(futs), 1):
+            sid, res = f.result()
+            if isinstance(res, Exception):
+                print("FAILED", sid, repr(res)[:200], flush=True); continue
+            buf.append((sid, res))
+            if len(buf) >= 10 or n == len(todo):
+                frames = [r for _, r in buf if not r.empty]
+                added = append_observations(a.out, pd.concat(frames)) if frames else 0
+                with open(done_log, "a") as fh:
+                    fh.write("".join(s + "\n" for s, _ in buf))
+                print(f"{n}/{len(todo)} scenes, +{added} rows, {time.time()-t0:.0f}s", flush=True)
+                buf = []

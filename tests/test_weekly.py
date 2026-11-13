@@ -36,11 +36,12 @@ def test_roof_status_precedence():
 
 
 def test_record_news_rerun_same_day_returns_same_news():
-    from roofwatch.weekly import record_news
+    from roofwatch.weekly import mark_published, record_news
 
     ev = _ev([(2, "2026-11-01", "2026-11-06", "bright_new_roof")])
     day = pd.Timestamp("2026-11-13")
     known1, news1 = record_news(ev, None, day)
+    known1 = mark_published(known1, news1)
     known2, news2 = record_news(ev, known1, day)
     assert news1["roof_id"].tolist() == [2] and news2["roof_id"].tolist() == [2]
     assert len(known2) == 1
@@ -71,3 +72,39 @@ def test_record_news_does_not_register_shifted_duplicates():
     known, _ = record_news(_ev([(2, "2026-10-01", "2026-10-06", "bright_new_roof")]), None, day)
     known2, news = record_news(_ev([(2, "2026-10-20", "2026-10-25", "bright_new_roof")]), known, day)
     assert len(known2) == 1
+
+
+def test_unpublished_news_from_a_crashed_run_carries_over():
+    from roofwatch.weekly import mark_published, record_news
+
+    ev = _ev([(2, "2026-11-01", "2026-11-06", "bright_new_roof")])
+    wk1 = pd.Timestamp("2026-11-13")
+    reg1, news1 = record_news(ev, None, wk1)          # run crashes before publishing
+    reg2, news2 = record_news(ev, reg1, wk1 + pd.Timedelta(days=7))
+    assert news2["roof_id"].tolist() == [2]
+    reg2 = mark_published(reg2, news2)
+    _, news3 = record_news(ev, reg2, wk1 + pd.Timedelta(days=14))
+    assert news3.empty
+
+
+def test_published_news_rerun_same_day_is_stable():
+    from roofwatch.weekly import mark_published, record_news
+
+    ev = _ev([(2, "2026-11-01", "2026-11-06", "bright_new_roof")])
+    day = pd.Timestamp("2026-11-13")
+    reg, news = record_news(ev, None, day)
+    reg = mark_published(reg, news)
+    _, again = record_news(ev, reg, day)
+    assert again["roof_id"].tolist() == [2]
+
+
+def test_no_events_at_all_gives_a_usable_register():
+    from roofwatch.change import detect_changes
+    from roofwatch.weekly import record_news
+
+    stable = pd.DataFrame({"roof_id": [1] * 10, "date": pd.date_range("2026-01-01", periods=10, freq="10D"),
+                           "blue": 0.1, "green": 0.1, "red": 0.1, "nir": 0.2})
+    ev = detect_changes(stable)
+    reg, news = record_news(ev, None, pd.Timestamp("2026-11-13"))
+    assert {"roof_id", "date", "confirmed_on", "change_type", "reported_on", "published"} <= set(reg.columns)
+    assert reg[reg["confirmed_on"] >= pd.Timestamp("2026-01-01")].empty and news.empty

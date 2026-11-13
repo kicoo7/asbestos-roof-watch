@@ -44,71 +44,79 @@ def detect_changes(
     normalize: bool = False,
     rel_floor: float = 0.1,
     min_roofs_per_date: int = 30,
+    min_span_days: int = 10,
 ) -> pd.DataFrame:
-    """Change events: a roof departs from its own baseline on 2 consecutive clear dates.
+    """Change events: a roof departs from its own baseline and stays departed.
 
-    `obs` holds clear observations only (one row per roof per date). The baseline is the
-    median of up to `window` earlier observations in the current state; the scale is the
-    larger of 1.4826 x MAD and `floor` (reflectance units). After a change the baseline
-    restarts from the new state, so one new state gives one event.
+    `obs` holds clear observations only. The baseline is the median of up to `window`
+    earlier observations in the current state (at least `min_history`); the scale is the
+    larger of 1.4826 x MAD and `floor`. A departure (max band |z| > threshold) is confirmed
+    when every following clear observation departs in the same direction until one at least
+    `min_span_days` later (so at least 2 clear dates, never two looks at one weather episode).
+    After a change the baseline restarts from the new state: one new state, one event.
 
-    With `normalize`, each band is divided by that date's median over all roofs before
-    scoring (dates with fewer than `min_roofs_per_date` roofs are skipped), so haze,
-    illumination and seasonal shifts shared by all roofs cancel out. The floor is then
+    With `normalize`, each band is divided by the median over all roofs of the same scene
+    (`scene_id`, else `date`); groups with fewer than `min_roofs_per_date` roofs are skipped.
+    Haze, illumination and seasonal shifts shared by a pass cancel out; the floor is then
     `rel_floor` (a fraction). Before/after values and change types stay in reflectance.
     """
     extra = [b for b in ("swir16", "swir22") if b in obs.columns]
-    obs = obs.sort_values("date")
+    obs = obs.sort_values(["date"] + (["scene_id"] if "scene_id" in obs.columns else []), kind="stable")
     if normalize:
-        counts = obs.groupby("date")["roof_id"].transform("size")
+        key = "scene_id" if "scene_id" in obs.columns else "date"
+        counts = obs.groupby(key)["roof_id"].transform("size")
         obs = obs[counts >= min_roofs_per_date]
-        med = obs.groupby("date")[bands].transform("median")
-        obs = obs.join((obs[bands] / med).add_prefix("n_"))
+        med = obs.groupby(key)[bands].transform("median")
+        obs = obs.assign(**{f"n_{b}": obs[b] / med[b] for b in bands})
         score_bands, floor = [f"n_{b}" for b in bands], rel_floor
     else:
         score_bands = bands
+    span = np.timedelta64(int(min_span_days), "D")
     events = []
     for roof_id, g in obs.groupby("roof_id", sort=False):
         X = g[score_bands].to_numpy(float)
+        RAW = g[bands + extra].to_numpy(float)
         dates = g["date"].to_numpy()
-        state_start, i, n = 0, 0, len(g)
-        z = np.zeros(n)
-        signs = np.zeros(n)
-
-        def score(j):
-            hist = X[max(state_start, j - window):j]
+        n, i, state_start = len(g), 0, 0
+        while i < n:
+            hist = X[max(state_start, i - window):i]
             if len(hist) < min_history:
-                return None
-            base = np.median(hist, axis=0)
-            scale = np.maximum(1.4826 * np.median(np.abs(hist - base), axis=0), floor)
-            d = (X[j] - base) / scale
-            return float(np.max(np.abs(d))), float(np.sign(np.mean(X[j] - base))), base
-
-        while i < n - 1:
-            s0 = score(i)
-            if s0 is None or s0[0] <= threshold:
                 i += 1
                 continue
-            s1 = score(i + 1)
-            # second date compared to the same baseline as the first
-            hist = X[max(state_start, i - window):i]
-            base = s0[2]
-            scale = np.maximum(1.4826 * np.median(np.abs(hist - base), axis=0), floor)
-            z1 = float(np.max(np.abs((X[i + 1] - base) / scale)))
-            sign1 = float(np.sign(np.mean(X[i + 1] - base)))
-            if z1 > threshold and sign1 == s0[1]:
-                rows = g.iloc[[i, i + 1]]
-                hist_rows = g.iloc[max(state_start, i - window):i]
-                before = {b: float(hist_rows[b].median()) for b in bands + extra}
-                after = rows[bands + extra].mean().to_dict()
-                events.append({
-                    "roof_id": roof_id, "date": pd.Timestamp(dates[i]), "confirmed_on": pd.Timestamp(dates[i + 1]),
-                    "score": min(s0[0], z1), "change_type": classify_change(before, after),
-                    **{f"{b}_before": before[b] for b in bands + extra},
-                    **{f"{b}_after": after[b] for b in bands + extra},
-                })
-                state_start = i
-                i += 2
-            else:
+            base = np.nanmedian(hist, axis=0)
+            scale = np.maximum(1.4826 * np.nanmedian(np.abs(hist - base), axis=0), floor)
+
+            def dev(k):
+                d = X[k] - base
+                return float(np.nanmax(np.abs(d / scale))), float(np.sign(np.nanmean(d)))
+
+            z0, s0 = dev(i)
+            if not z0 > threshold:
                 i += 1
-    return pd.DataFrame(events)
+                continue
+            j, confirmed, zmin = i, False, z0
+            while j + 1 < n:
+                j += 1
+                zj, sj = dev(j)
+                if not (zj > threshold and sj == s0):
+                    break
+                zmin = min(zmin, zj)
+                if dates[j] - dates[i] >= span:
+                    confirmed = True
+                    break
+            if not confirmed:
+                i += 1
+                continue
+            raw_hist = RAW[max(state_start, i - window):i]
+            before = dict(zip(bands + extra, np.nanmedian(raw_hist, axis=0)))
+            after = dict(zip(bands + extra, np.nanmean(RAW[i:j + 1], axis=0)))
+            events.append({
+                "roof_id": roof_id, "date": pd.Timestamp(dates[i]), "confirmed_on": pd.Timestamp(dates[j]),
+                "score": zmin, "change_type": classify_change(before, after),
+                **{f"{b}_before": before[b] for b in bands + extra},
+                **{f"{b}_after": after[b] for b in bands + extra},
+            })
+            state_start, i = i, j + 1
+    cols = ["roof_id", "date", "confirmed_on", "score", "change_type",
+            *[f"{b}_before" for b in bands + extra], *[f"{b}_after" for b in bands + extra]]
+    return pd.DataFrame(events, columns=cols)

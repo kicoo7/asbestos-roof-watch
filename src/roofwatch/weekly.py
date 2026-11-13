@@ -41,19 +41,35 @@ def record_news(events: pd.DataFrame, known: pd.DataFrame | None, run_date: pd.T
     """Update the event register and return (register, this run's news).
 
     The register keeps every change once, with `reported_on` = the run date that first
-    listed it (NaT for old history). Re-running the same date returns the same news.
+    listed it (NaT for old history) and `published` = whether a change list was written
+    for it (see `mark_published`). Re-running the same date returns the same news, and
+    news from a run that crashed before publishing is carried into the next run.
     """
-    known = known.copy() if known is not None and not known.empty else events.iloc[0:0].assign(reported_on=pd.NaT)
+    known = known.copy() if known is not None and not known.empty else events.iloc[0:0].assign(reported_on=pd.NaT, published=False)
+    if "published" not in known:
+        known["published"] = known["reported_on"].notna()
     fresh = new_events(events, known, run_date, news_window_days, same_event_days)
     if not events.empty:
-        unseen = events[~_known_mask(events, known, same_event_days)].assign(reported_on=pd.NaT)
+        unseen = events[~_known_mask(events, known, same_event_days)].assign(reported_on=pd.NaT, published=False)
         if len(fresh):
             f = pd.MultiIndex.from_frame(fresh[EVENT_KEY])
             unseen.loc[pd.MultiIndex.from_frame(unseen[EVENT_KEY]).isin(f), "reported_on"] = run_date
         known = pd.concat([known, unseen], ignore_index=True)
     known["reported_on"] = pd.to_datetime(known["reported_on"])
-    news = known[known["reported_on"] == run_date].drop(columns="reported_on").reset_index(drop=True)
-    return known.reset_index(drop=True), news
+    known["published"] = known["published"].astype(bool)
+    # this run's news, plus news from an earlier run that crashed before publishing
+    pending = known["reported_on"].notna() & ~known["published"] & (known["reported_on"] < run_date)
+    news = known[(known["reported_on"] == run_date) | pending]
+    return known.reset_index(drop=True), news.drop(columns=["reported_on", "published"]).reset_index(drop=True)
+
+
+def mark_published(register: pd.DataFrame, news: pd.DataFrame) -> pd.DataFrame:
+    """Flag the events in `news` as written to a change list."""
+    reg = register.copy()
+    if len(news):
+        hit = pd.MultiIndex.from_frame(reg[EVENT_KEY]).isin(pd.MultiIndex.from_frame(news[EVENT_KEY]))
+        reg.loc[hit, "published"] = True
+    return reg
 
 
 def roof_status(roof_ids: pd.Series, official_ac: set, scores: pd.Series, changed: set,

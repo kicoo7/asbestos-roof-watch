@@ -29,7 +29,7 @@ allobs = load_all_observations(OUT)
 ev = detect_changes(allobs, **DETECT_PARAMS)
 labels = inv.set_index("roof_id")[["label", "label_date", "tier", "comune"]].copy()
 labels["label_date"] = pd.to_datetime(labels["label_date"])
-labels["clean_label"] = clean_labels(labels, ev)
+labels["clean_label"] = clean_labels(labels, ev, end=END)
 label_table = pd.crosstab(labels["clean_label"], labels["tier"], margins=True)
 
 # --- features -----------------------------------------------------------------------------
@@ -82,6 +82,21 @@ for name, cols in models.items():
         curves[(name, t)] = precision_recall_curve(yy, pp)
     if name == "all features":
         best_oof = oof
+# I5: the same model on uncleaned labels, so cleaning cannot flatter the numbers unseen
+raw_lab = labels["label"].reindex(X.index)
+raw_train = X[raw_lab.isin(["ac", "none"])]
+y_raw = (raw_lab.reindex(raw_train.index) == "ac").astype(int).values
+g_raw = labels["comune"].reindex(raw_train.index).values
+t_raw = labels["tier"].reindex(raw_train.index).values
+oof_raw = np.mean([grouped_oof_predictions(raw_train, y_raw, g_raw, n_splits=5,
+                   fit_predict=lambda a, b, c, d, e, s=s: lgbm_fit_predict(a, b, c, seed=s)) for s in range(3)], axis=0)
+for t in ("A", "B", "all"):
+    m = np.ones(len(y_raw), bool) if t == "all" else t_raw == t
+    rows.append({"model": "all features, uncleaned labels", "tier": t, "n_ac": int(y_raw[m].sum()),
+                 "n_other": int((1 - y_raw[m]).sum()), "base_rate": y_raw[m].mean(),
+                 "avg_precision": average_precision_score(y_raw[m], oof_raw[m]),
+                 "precision@recall0.5": precision_at_recall(y_raw[m], oof_raw[m], 0.5),
+                 "precision@recall0.3": precision_at_recall(y_raw[m], oof_raw[m], 0.3)})
 res = pd.DataFrame(rows)
 fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
 for ax, t in zip(axes, ["A", "B"]):
@@ -101,4 +116,4 @@ label_table.to_csv(OUT / "label_table.csv")
 single.head(15).to_csv(OUT / "single_feature_auc.csv")
 print(label_table); print(res.round(3).to_string(index=False)); print(single.head(12).round(3))
 print("observation dates per roof (12 m):", feat_dates.describe().round(1).to_dict())
-print("change events used for label cleaning:", len(ev))
+print("change events used for label cleaning:", len(ev), "on", ev["roof_id"].nunique(), "roofs")

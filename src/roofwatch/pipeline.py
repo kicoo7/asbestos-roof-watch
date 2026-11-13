@@ -17,11 +17,16 @@ CONTEXT_COLS = ["area_m2", "built_year", "built_2020_m2", "compactness", "class"
 MIN_DATES = 6
 
 
-def clean_labels(labels: pd.DataFrame, events: pd.DataFrame) -> pd.Series:
-    """'ac' roofs with a detected change after their label date (or with no date) become 'ac_changed_since_label'."""
+def clean_labels(labels: pd.DataFrame, events: pd.DataFrame, end: pd.Timestamp | None = None) -> pd.Series:
+    """'ac' roofs with a detected change after their label date (or with no date) become 'ac_changed_since_label'.
+
+    Only events confirmed on or before `end` count, so evaluation at `end` sees no later information.
+    """
     out = labels["label"].copy()
     if events is None or events.empty:
         return out
+    if end is not None and "confirmed_on" in events:
+        events = events[events["confirmed_on"] <= end]
     ev = events.join(labels["label_date"], on="roof_id")
     hit = ev[ev["label_date"].isna() | (ev["date"] > ev["label_date"])]["roof_id"].unique()
     out[(out == "ac") & out.index.isin(hit)] = "ac_changed_since_label"
@@ -33,7 +38,8 @@ def load_all_observations(outputs: Path) -> pd.DataFrame:
     frames = [load_observations(Path(outputs) / f) for f in ("observations_archive.parquet", "observations.parquet")]
     obs = pd.concat([f for f in frames if not f.empty], ignore_index=True)
     obs = obs.drop_duplicates(["roof_id", "scene_id"])
-    return obs.sort_values("n_clear", ascending=False).drop_duplicates(["roof_id", "date"]).sort_values(["roof_id", "date"])
+    obs = obs.sort_values(["n_clear", "scene_id"], ascending=[False, True], kind="stable")
+    return obs.drop_duplicates(["roof_id", "date"]).sort_values(["roof_id", "date"]).reset_index(drop=True)
 
 
 def feature_matrix(obs: pd.DataFrame, labels: pd.DataFrame, ctx: pd.DataFrame, end: pd.Timestamp) -> pd.DataFrame:

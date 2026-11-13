@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pickle
 import subprocess
 import sys
@@ -26,9 +27,10 @@ import pandas as pd  # noqa: E402
 
 from roofwatch.change import DETECT_PARAMS, detect_changes  # noqa: E402
 from roofwatch.extract import COLLECTION, STAC_URL, extract_scene, tile_code  # noqa: E402
+from roofwatch.lock import run_lock  # noqa: E402
 from roofwatch.pipeline import clean_labels, feature_matrix, load_all_observations, train_and_score  # noqa: E402
 from roofwatch.store import append_observations, load_observations  # noqa: E402
-from roofwatch.weekly import record_news, roof_status  # noqa: E402
+from roofwatch.weekly import mark_published, record_news, roof_status  # noqa: E402
 
 OUT = ROOT / "outputs"
 PROC = ROOT / "data/processed"
@@ -36,6 +38,12 @@ RESCORE_DAYS = 30
 SUSPECT_THRESHOLD = 0.5
 CHANGED_WINDOW_DAYS = 365
 OFFICIAL_AC = {"ac", "ac_small_part", "partial", "ac_changed_since_label"}
+
+
+def write_parquet_atomic(df: pd.DataFrame, path: Path):
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    df.to_parquet(tmp, index=False)
+    os.replace(tmp, path)
 
 
 def fetch_new_scenes(run_date, days, max_cloud, lookups, log):
@@ -77,7 +85,7 @@ def scores(run_date, obs, labels, ctx, log):
     train_idx = X.index[lab.isin(["ac", "none"])]
     y = (lab.reindex(train_idx) == "ac").astype(int).values
     p = train_and_score(X, y, train_idx, labels["comune"].reindex(train_idx).values)
-    p.rename_axis("roof_id").reset_index().assign(scored_on=run_date).to_parquet(path, index=False)
+    write_parquet_atomic(p.rename_axis("roof_id").reset_index().assign(scored_on=run_date), path)
     log["scores"] = f"re-scored {len(p)} roofs on {run_date.date()}"
     return p
 
@@ -117,70 +125,87 @@ def write_map(roofs: gpd.GeoDataFrame, run_date, path):
     m.save(str(path))
 
 
+
+def run(run_date, a, log):
+    inv = gpd.read_file(PROC / "roofs_inventory.gpkg", layer="roofs")
+    ctx = pd.read_parquet(PROC / "context.parquet")
+    lookups = pickle.load(open(PROC / "lookups.pkl", "rb"))
+
+    roofs_seen = fetch_new_scenes(run_date, a.days, a.max_cloud, lookups, log)
+    obs = load_observations(OUT / "observations.parquet")
+    obs = obs[obs["date"] <= run_date]
+    allobs = load_all_observations(OUT)
+    allobs = allobs[allobs["date"] <= run_date]
+
+    events = detect_changes(allobs, **DETECT_PARAMS)
+    events = events[events["confirmed_on"] <= run_date]
+    reg_path = OUT / "change_events.parquet"
+    known = pd.read_parquet(reg_path) if reg_path.exists() else None
+    register, news = record_news(events, known, run_date)
+
+    labels = inv.set_index("roof_id")[["label", "label_date", "tier", "comune"]].copy()
+    labels["label_date"] = pd.to_datetime(labels["label_date"])
+    labels["clean_label"] = clean_labels(labels, events, end=run_date)
+    if a.with_detection:
+        p = scores(run_date, obs, labels, ctx, log)
+        threshold = SUSPECT_THRESHOLD
+    else:
+        p, threshold = pd.Series(dtype=float), float("inf")
+        log["scores"] = "skipped: AC detection is off (failed the go/no-go gate); use --with-detection"
+
+    recent = register[register["confirmed_on"] >= run_date - pd.Timedelta(days=CHANGED_WINDOW_DAYS)]
+    last_ev = register.sort_values("date").groupby("roof_id").last()
+    roofs = inv.copy()
+    roofs["official_label"] = roofs["label"]
+    roofs["ac_probability"] = roofs["roof_id"].map(p)
+    roofs["status"] = roof_status(roofs["roof_id"], set(labels.index[labels["clean_label"].isin(OFFICIAL_AC)]),
+                                  p, set(recent["roof_id"]), threshold).values
+    last_clear = allobs.groupby("roof_id")["date"].max()
+    roofs["last_clear_date"] = roofs["roof_id"].map(last_clear)
+    roofs["view"] = np.where(roofs["last_clear_date"] >= run_date - pd.Timedelta(days=a.days), "clear", "no_clear_view")
+    roofs["last_change_type"] = roofs["roof_id"].map(last_ev["change_type"])
+    roofs["last_change_date"] = roofs["roof_id"].map(last_ev["date"])
+    keep = ["roof_id", "area_m2", "tier", "comune", "ac_probability", "status", "view", "last_clear_date",
+            "official_label", "label_date", "last_change_type", "last_change_date", "geometry"]
+    roofs = roofs[keep]
+
+    # Outputs first, register last: a crash before this point leaves the news unpublished,
+    # and the next run carries it over (weekly.record_news).
+    tmp_gpkg = OUT / f".roofs.{os.getpid()}.gpkg"
+    roofs.to_file(tmp_gpkg, layer="roofs", driver="GPKG")
+    os.replace(tmp_gpkg, OUT / "roofs.gpkg")
+    news_out = news.merge(roofs[["roof_id", "comune", "tier", "area_m2", "official_label", "ac_probability"]],
+                          on="roof_id", how="left")
+    news_out.to_csv(OUT / f"changes_{run_date.date()}.csv", index=False)
+    write_map(roofs, run_date, OUT / "map.html")
+    write_parquet_atomic(mark_published(register, news), reg_path)
+
+    log.update({
+        "ok": True,
+        "roofs_total": int(len(roofs)),
+        "roofs_updated_this_run": int(len(roofs_seen)),
+        "roofs_no_clear_view": int((roofs["view"] == "no_clear_view").sum()),
+        "new_changes": int(len(news)),
+        "new_changes_by_type": news["change_type"].value_counts().to_dict() if len(news) else {},
+        "status_counts": roofs["status"].value_counts().to_dict(),
+    })
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None)
     ap.add_argument("--days", type=int, default=14)
     ap.add_argument("--max-cloud", type=float, default=80)
     ap.add_argument("--notify", action="store_true", help="macOS notification on failure")
+    ap.add_argument("--with-detection", action="store_true",
+                    help="also score every roof's AC probability and mark 'suspected' roofs. Off by default: "
+                         "the pilot classifier failed the go/no-go gate (docs/RESULTS.md)")
     a = ap.parse_args()
     run_date = pd.Timestamp(a.date) if a.date else pd.Timestamp.now().normalize()
     log = {"run_date": str(run_date.date()), "started": pd.Timestamp.now().isoformat(timespec="seconds"), "ok": False}
     t0 = time.time()
     try:
-        inv = gpd.read_file(PROC / "roofs_inventory.gpkg", layer="roofs")
-        ctx = pd.read_parquet(PROC / "context.parquet")
-        lookups = pickle.load(open(PROC / "lookups.pkl", "rb"))
-
-        roofs_seen = fetch_new_scenes(run_date, a.days, a.max_cloud, lookups, log)
-        obs = load_observations(OUT / "observations.parquet")
-        obs = obs[obs["date"] <= run_date]
-        allobs = load_all_observations(OUT)
-        allobs = allobs[allobs["date"] <= run_date]
-
-        events = detect_changes(allobs, **DETECT_PARAMS)
-        if not events.empty:
-            events = events[events["confirmed_on"] <= run_date]
-        reg_path = OUT / "change_events.parquet"
-        known = pd.read_parquet(reg_path) if reg_path.exists() else None
-        register, news = record_news(events, known, run_date)
-        register.to_parquet(reg_path, index=False)
-
-        labels = inv.set_index("roof_id")[["label", "label_date", "tier", "comune"]].copy()
-        labels["label_date"] = pd.to_datetime(labels["label_date"])
-        labels["clean_label"] = clean_labels(labels, events)
-        p = scores(run_date, obs, labels, ctx, log)
-
-        recent = register[register["confirmed_on"] >= run_date - pd.Timedelta(days=CHANGED_WINDOW_DAYS)]
-        last_ev = register.sort_values("date").groupby("roof_id").last()
-        roofs = inv.copy()
-        roofs["official_label"] = roofs["label"]
-        roofs["ac_probability"] = roofs["roof_id"].map(p)
-        roofs["status"] = roof_status(roofs["roof_id"], set(labels.index[labels["clean_label"].isin(OFFICIAL_AC)]),
-                                      p, set(recent["roof_id"]), SUSPECT_THRESHOLD).values
-        last_clear = allobs.groupby("roof_id")["date"].max()
-        roofs["last_clear_date"] = roofs["roof_id"].map(last_clear)
-        roofs["view"] = np.where(roofs["last_clear_date"] >= run_date - pd.Timedelta(days=a.days), "clear", "no_clear_view")
-        roofs["last_change_type"] = roofs["roof_id"].map(last_ev["change_type"]) if len(last_ev) else None
-        roofs["last_change_date"] = roofs["roof_id"].map(last_ev["date"]) if len(last_ev) else pd.NaT
-        keep = ["roof_id", "area_m2", "tier", "comune", "ac_probability", "status", "view", "last_clear_date",
-                "official_label", "label_date", "last_change_type", "last_change_date", "geometry"]
-        roofs = roofs[keep]
-        roofs.to_file(OUT / "roofs.gpkg", layer="roofs", driver="GPKG")
-
-        news_out = news.merge(roofs[["roof_id", "comune", "tier", "area_m2", "official_label", "ac_probability"]], on="roof_id", how="left")
-        news_out.to_csv(OUT / f"changes_{run_date.date()}.csv", index=False)
-        write_map(roofs, run_date, OUT / "map.html")
-
-        log.update({
-            "ok": True,
-            "roofs_total": int(len(roofs)),
-            "roofs_updated_this_run": int(len(roofs_seen)),
-            "roofs_no_clear_view": int((roofs["view"] == "no_clear_view").sum()),
-            "new_changes": int(len(news)),
-            "new_changes_by_type": news["change_type"].value_counts().to_dict() if len(news) else {},
-            "status_counts": roofs["status"].value_counts().to_dict(),
-        })
+        with run_lock(OUT / ".roofwatch.lock"):
+            run(run_date, a, log)
     except Exception as e:  # T3.4: failures end up in the log and, optionally, as a notification
         log["error"] = repr(e)
         log["traceback"] = traceback.format_exc()

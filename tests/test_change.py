@@ -86,3 +86,37 @@ def test_single_roof_change_survives_normalisation():
     ch = detect_changes(obs, normalize=True)
     assert ch["roof_id"].tolist() == [7]
     assert ch.iloc[0]["change_type"] == "bright_new_roof"
+
+
+def test_short_lived_departure_within_span_is_not_a_change():
+    # two deviating dates 3 days apart (one weather episode), then back to normal
+    rows = _series([GREY] * 15, step_days=10).to_dict("records")
+    last = rows[-1]["date"]
+    for k, d in enumerate([3, 6]):
+        rows.append({"roof_id": 1, "date": last + pd.Timedelta(days=d), **METAL})
+    for k in range(5):
+        rows.append({"roof_id": 1, "date": last + pd.Timedelta(days=10 + 10 * k), **GREY})
+    assert detect_changes(pd.DataFrame(rows), min_span_days=10).empty
+
+
+def test_change_persisting_over_span_is_confirmed_at_span_end():
+    obs = _series([GREY] * 15 + [METAL] * 4, step_days=5)
+    ch = detect_changes(obs, min_span_days=10)
+    assert len(ch) == 1
+    assert ch.iloc[0]["date"] == obs["date"].iloc[15]
+    assert ch.iloc[0]["confirmed_on"] == obs["date"].iloc[17]
+
+
+def test_change_not_confirmed_before_span_has_elapsed():
+    obs = _series([GREY] * 15 + [METAL] * 2, step_days=3)
+    assert detect_changes(obs, min_span_days=10).empty
+
+
+def test_normalisation_is_per_scene_not_per_date():
+    obs = _many_roofs()
+    # split roofs into two passes on every date; pass B is hazier on two dates
+    obs["scene_id"] = np.where(obs["roof_id"] % 2 == 0, "A", "B") + obs["date"].dt.strftime("%Y%m%d")
+    hazy = (obs["roof_id"] % 2 == 1) & obs["date"].isin(obs["date"].unique()[12:15])
+    for b in ["blue", "green", "red", "nir"]:
+        obs.loc[hazy, b] *= 1.6
+    assert detect_changes(obs, normalize=True, min_roofs_per_date=20).empty

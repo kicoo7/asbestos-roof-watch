@@ -35,3 +35,24 @@ def test_feature_matrix_excludes_acquisition_count_and_filters_sparse_roofs():
     X = feature_matrix(obs, labels, ctx, end=pd.Timestamp("2026-11-01"))
     assert list(X.index) == [1]
     assert "n_dates" not in X.columns
+
+
+def test_load_all_observations_tie_break_is_deterministic(tmp_path):
+    from roofwatch.pipeline import load_all_observations
+    from roofwatch.store import append_observations
+
+    d = pd.Timestamp("2026-09-12")
+    a = pd.DataFrame({"roof_id": [1, 1], "scene_id": ["S2B_x", "S2A_x"], "date": [d, d], "n_clear": [4, 4], "red": [0.2, 0.3]})
+    append_observations(tmp_path / "observations.parquet", a)
+    first = load_all_observations(tmp_path)
+    (tmp_path / "observations.parquet").unlink()
+    append_observations(tmp_path / "observations.parquet", a.iloc[::-1])
+    second = load_all_observations(tmp_path)
+    assert first["scene_id"].tolist() == second["scene_id"].tolist() == ["S2A_x"]
+
+
+def test_clean_labels_ignores_events_confirmed_after_end():
+    labels = pd.DataFrame({"label": ["ac"], "label_date": pd.to_datetime(["2018-01-01"])}, index=pd.Index([1], name="roof_id"))
+    events = pd.DataFrame({"roof_id": [1], "date": pd.to_datetime(["2025-06-01"]), "confirmed_on": pd.to_datetime(["2025-06-20"])})
+    assert clean_labels(labels, events, end=pd.Timestamp("2025-01-01")).tolist() == ["ac"]
+    assert clean_labels(labels, events, end=pd.Timestamp("2026-01-01")).tolist() == ["ac_changed_since_label"]

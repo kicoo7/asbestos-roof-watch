@@ -1,6 +1,8 @@
 """Append-only per-roof per-scene observation table (PLAN 5, observations.parquet)."""
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -26,7 +28,12 @@ def append_observations(path: Path, new: pd.DataFrame) -> int:
     if new.empty:
         return 0
     out = pd.concat([old, new], ignore_index=True) if not old.empty else new.reset_index(drop=True)
-    tmp = path.with_suffix(".tmp")
-    out.to_parquet(tmp, index=False)
-    tmp.replace(path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.stem + ".", suffix=".tmp")
+    os.close(fd)
+    try:
+        out.to_parquet(tmp, index=False)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     return len(new)
