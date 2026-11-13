@@ -50,3 +50,17 @@ def roof_features(obs: pd.DataFrame, tiers: pd.Series, end: pd.Timestamp, months
     blank = [c for c in f.columns if any(c.startswith(p + "_") for p in BANDS_20M + INDICES_20M)]
     f.loc[tier == "B", blank] = np.nan
     return f.reset_index()
+
+
+def first_built_year(built: pd.DataFrame, frac: float = 0.5) -> pd.Series:
+    """First epoch (column) whose built-up value reaches `frac` of the last epoch's value.
+
+    `built` has one column per epoch year, ascending. NaN when the last epoch has no built-up surface.
+    """
+    years = np.asarray(built.columns, dtype=float)
+    v = built.to_numpy(float)
+    final = v[:, -1:]
+    reached = (v >= frac * final) & (final > 0)
+    idx = reached.argmax(axis=1)
+    out = np.where(reached.any(axis=1), years[idx], np.nan)
+    return pd.Series(out, index=built.index)

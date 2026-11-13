@@ -46,3 +46,13 @@ def test_roof_features_blank_20m_features_for_tier_b():
     assert np.isnan(f.loc[2, "swir16_summer"])
     assert np.isnan(f.loc[2, "swir_ratio_winter"])
     assert not np.isnan(f.loc[2, "red_summer"])
+
+
+def test_first_built_year_is_first_epoch_reaching_half_of_final():
+    from roofwatch.features import first_built_year
+
+    t = pd.DataFrame({1975: [0, 0, 800], 1980: [0, 0, 900], 1985: [500, 0, 1000], 1990: [1000, 0, 1000]})
+    out = first_built_year(t, frac=0.5)
+    assert out.iloc[0] == 1985
+    assert np.isnan(out.iloc[1])
+    assert out.iloc[2] == 1975
