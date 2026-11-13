@@ -12,9 +12,14 @@ import timm
 import torch
 from PIL import Image
 
+import argparse
+
 ROOT = Path(__file__).resolve().parents[1]
-CHIPS = ROOT / "data/processed/chips"
-OUT = ROOT / "data/processed/chip_embeddings.parquet"
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--chips", default=str(ROOT / "data/processed/chips"))
+_ap.add_argument("--out", default=str(ROOT / "data/processed/chip_embeddings.parquet"))
+_a = _ap.parse_args()
+CHIPS, OUT = Path(_a.chips), Path(_a.out)
 MODEL = "vit_small_patch14_dinov2.lvd142m"
 
 dev = "mps" if torch.backends.mps.is_available() else "cpu"
