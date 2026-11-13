@@ -108,3 +108,9 @@ def test_no_events_at_all_gives_a_usable_register():
     reg, news = record_news(ev, None, pd.Timestamp("2026-11-13"))
     assert {"roof_id", "date", "confirmed_on", "change_type", "reported_on", "published"} <= set(reg.columns)
     assert reg[reg["confirmed_on"] >= pd.Timestamp("2026-01-01")].empty and news.empty
+
+
+def test_roof_status_without_scores_does_not_claim_an_assessment():
+    roofs = pd.Series([1, 2])
+    st = roof_status(roofs, {2}, pd.Series(dtype=float), set(), threshold=float("inf"), scored=False)
+    assert st.tolist() == ["no_official_record", "official_ac"]

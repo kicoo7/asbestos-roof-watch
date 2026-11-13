@@ -93,7 +93,8 @@ def scores(run_date, obs, labels, ctx, log):
 def write_map(roofs: gpd.GeoDataFrame, run_date, path):
     import folium
 
-    colors = {"changed": "#7b3294", "official_ac": "#d7191c", "suspected": "#fdae61", "not_suspected": "#969696"}
+    colors = {"changed": "#7b3294", "official_ac": "#d7191c", "suspected": "#fdae61",
+              "not_suspected": "#969696", "no_official_record": "#969696"}
     g = roofs.to_crs(4326).copy()
     g["geometry"] = g.geometry.simplify(0.00002)
     cols = ["roof_id", "comune", "tier", "area_m2", "status", "ac_probability", "view",
@@ -108,10 +109,11 @@ def write_map(roofs: gpd.GeoDataFrame, run_date, path):
     title = (f"<div style='position:fixed;top:10px;left:50px;z-index:9999;background:white;padding:8px;"
              f"border:1px solid #999;font:13px sans-serif'><b>Roof watch, run {run_date.date()}</b><br>"
              "All asbestos results are <b>suspected</b>; only inspection or lab test confirms.<br>"
-             + "".join(f"<span style='color:{v}'>&#9632;</span> {k} ({(g.status == k).sum()})<br>" for k, v in colors.items())
+             + "".join(f"<span style='color:{v}'>&#9632;</span> {k} ({(g.status == k).sum()})<br>"
+                       for k, v in colors.items() if (g.status == k).any())
              + "</div>")
     m.get_root().html.add_child(folium.Element(title))
-    for status in ["not_suspected", "suspected", "official_ac", "changed"]:
+    for status in ["no_official_record", "not_suspected", "suspected", "official_ac", "changed"]:
         sub = g[g["status"] == status]
         if sub.empty:
             continue
@@ -119,7 +121,7 @@ def write_map(roofs: gpd.GeoDataFrame, run_date, path):
             sub, name=f"{status} ({len(sub)})",
             style_function=lambda f, col=colors[status]: {"color": col, "fillColor": col, "weight": 1, "fillOpacity": 0.6},
             tooltip=folium.GeoJsonTooltip(fields=[c for c in cols if c != "geometry"]),
-            show=status != "not_suspected",
+            show=status not in ("not_suspected", "no_official_record"),
         ).add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
     m.save(str(path))
@@ -159,7 +161,7 @@ def run(run_date, a, log):
     roofs["official_label"] = roofs["label"]
     roofs["ac_probability"] = roofs["roof_id"].map(p)
     roofs["status"] = roof_status(roofs["roof_id"], set(labels.index[labels["clean_label"].isin(OFFICIAL_AC)]),
-                                  p, set(recent["roof_id"]), threshold).values
+                                  p, set(recent["roof_id"]), threshold, scored=a.with_detection).values
     last_clear = allobs.groupby("roof_id")["date"].max()
     roofs["last_clear_date"] = roofs["roof_id"].map(last_clear)
     roofs["view"] = np.where(roofs["last_clear_date"] >= run_date - pd.Timedelta(days=a.days), "clear", "no_clear_view")

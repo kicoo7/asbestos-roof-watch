@@ -7,7 +7,7 @@ import pandas as pd
 CHANGE_BANDS = ["blue", "green", "red", "nir"]  # 10 m bands, usable for both tiers
 
 # Operating point used by label cleaning and the weekly run; chosen in T2.2 (docs/RESULTS.md).
-DETECT_PARAMS = dict(normalize=True, rel_floor=0.1, threshold=4.0)
+DETECT_PARAMS = dict(normalize=True, rel_floor=0.15, threshold=4.0, min_span_days=10)
 
 
 def _bright(s) -> float:

@@ -47,3 +47,9 @@ pytest -q
 | `notebooks/` | Exploration |
 | `data/raw/`, `data/processed/` | Input data, not committed |
 | `outputs/` | `roofs.gpkg`, `changes_*.csv`, `observations.parquet`, `map.html`, `run_log.json`. Not committed |
+
+## Status (13 Nov 2026)
+
+- Phases 0 to 3 are built and run on the Turin pilot. Results and the go/no-go decision are in [docs/RESULTS.md](docs/RESULTS.md).
+- **No-go for asbestos detection** (tier A precision 0.30 at recall 0.5, bar 0.6). The weekly job therefore runs change monitoring on officially mapped roofs; `--with-detection` turns the classifier back on.
+- Not done: installing the schedule (`ops/install_schedule.sh`), Phase 4 (whole region) and Phase 5 (other regions).

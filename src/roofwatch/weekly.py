@@ -73,16 +73,20 @@ def mark_published(register: pd.DataFrame, news: pd.DataFrame) -> pd.DataFrame:
 
 
 def roof_status(roof_ids: pd.Series, official_ac: set, scores: pd.Series, changed: set,
-                threshold: float) -> pd.Series:
-    """changed > official_ac > suspected (score >= threshold) > not_suspected."""
+                threshold: float, scored: bool = True) -> pd.Series:
+    """changed > official_ac > suspected (score >= threshold) > not_suspected.
+
+    Without scores (`scored=False`) the last class is 'no_official_record': nothing was assessed.
+    """
+    rest = "not_suspected" if scored else "no_official_record"
     out = []
     for r in roof_ids:
         if r in changed:
             out.append("changed")
         elif r in official_ac:
             out.append("official_ac")
-        elif scores.get(r, 0.0) >= threshold:
+        elif scored and scores.get(r, 0.0) >= threshold:
             out.append("suspected")
         else:
-            out.append("not_suspected")
+            out.append(rest)
     return pd.Series(out, index=roof_ids.index)
