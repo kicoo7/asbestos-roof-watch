@@ -23,8 +23,9 @@ import shapely
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from roofwatch.grants import grant_status, load_grants, roof_grants  # noqa: E402
+from roofwatch.grants import load_grants, roof_grants  # noqa: E402
 from roofwatch.panel import REGISTER_JS, build_details, load_inputs, panel_html  # noqa: E402
+from roofwatch.tabs import grants_tab, tabs_html  # noqa: E402
 
 THRESH = 0.7  # ~53-59% of flags are mapped AC for roofs >= 500 m2, finding 70-75% of them (held-out towns)
 RAW, PROC, OUT = ROOT / "data/raw", ROOT / "data/processed", ROOT / "outputs"
@@ -121,7 +122,7 @@ def add_boxes(m: folium.Map, r: gpd.GeoDataFrame, companies: bool, aia: bool = F
     if osm:
         company += "<li><b>Named sites</b>: OpenStreetMap (ODbL).</li>"
     sources = f"""
-<details open class='rw-sources' style='position:fixed;top:10px;left:50px;z-index:9999;background:white;padding:8px 10px;
+<details open class='rw-sources' style='position:fixed;top:40px;left:50px;z-index:9999;background:white;padding:8px 10px;
  max-width:min(420px,calc(100vw - 70px));max-height:70vh;overflow:auto;box-sizing:border-box;border:1px solid #999;font:12px sans-serif'>
 <summary style='font-weight:bold;cursor:pointer'>Data used (click to hide)</summary>
 <ul style='padding-left:16px;margin:6px 0'>
@@ -147,28 +148,6 @@ only an inspection or lab test confirms.
 
 
 GRANTS = ROOT / "data/grants_lombardia.json"
-
-
-def add_grants_box(m: folium.Map, grants: dict, today: date) -> None:
-    """Collapsible box listing the region's asbestos grants with their status on the day the map is built."""
-    tag = {"open": "OPEN", "upcoming": "UPCOMING", "closed": "Closed", "ask": "Ask"}
-    items = []
-    for g in grants["grants"]:
-        st = grant_status(g, today)
-        when = (f"until {g['closes']}" if st == "open" and g.get("closes") else f"opens {g['opens']}" if st == "upcoming"
-                else f"closed {g['closes']}; next: {g.get('next_call', '')}" if st == "closed" else g.get("next_call", ""))
-        src = (g.get("sources") or [""])[0]
-        link = f" <a href='{escape(src, quote=True)}' target='_blank' rel='noopener noreferrer'>source</a>" if src else ""
-        items.append(f"<li><b>{tag[st]}</b> {escape(g['name'])}<br><span style='color:#555'>{escape(', '.join(g['for']))} · "
-                     f"{escape(when)}</span>{link}</li>")
-    box = (f"<details style='position:fixed;bottom:34px;right:10px;z-index:9999;background:white;padding:6px 10px;"
-           f"max-width:min(380px,calc(100vw - 40px));max-height:60vh;overflow:auto;box-sizing:border-box;border:1px solid #999;"
-           f"font:12px sans-serif'><summary style='font-weight:bold;cursor:pointer'>Grants in {escape(grants.get('region', ''))} "
-           f"({sum(grant_status(g, today) == 'open' for g in grants['grants'])} open)</summary>"
-           f"<ul style='padding-left:16px;margin:6px 0'>{''.join(items)}</ul>"
-           f"<div style='color:#555'>Status on {today.isoformat()}; data checked on {escape(grants.get('checked_on', ''))}. "
-           f"Click a roof for the schemes that fit it.</div></details>")
-    m.get_root().html.add_child(folium.Element(box))
 
 
 def main(raw: Path = RAW, proc: Path = PROC, out: Path = OUT, html: Path | None = None) -> dict:
@@ -209,8 +188,12 @@ def main(raw: Path = RAW, proc: Path = PROC, out: Path = OUT, html: Path | None 
     chips = Path(os.path.relpath(proc / "chips", html.parent)).as_posix() + "/"
     m.get_root().html.add_child(folium.Element(panel_html(details, m.get_name(), groups, chips)))
     add_boxes(m, r, inputs["companies"] is not None, aia="aia_company" in ws.columns, osm="osm_name" in ws.columns)
-    if grants:
-        add_grants_box(m, grants, today)
+    if grants:  # the Grants tab: one card per scheme, with the candidate roofs it may fit (links open them on the map)
+        groups_by_roof = dict(zip(clickable["roof_id"].astype(int), clickable["group"].fillna("") if "group" in clickable else [""] * len(clickable)))
+        tab_roofs = [{"roof_id": int(rid), "comune": d.get("comune") or "", "area_m2": area.get(int(rid)),
+                      "group": groups_by_roof.get(int(rid), ""), "owner_type": d["grants"]["owner_type"], "why": d["grants"]["why"],
+                      "dnc": bool(d.get("do_not_contact"))} for rid, d in details.items()]
+        m.get_root().html.add_child(folium.Element(tabs_html({"grants": ("Grants", grants_tab(grants, today, tab_roofs))})))
     folium.LayerControl(collapsed=False).add_to(m)
     m.save(str(html))
     print("groups:", r.group.value_counts().to_dict(), "| worksheet joined:", "parcel_ref" in ws.columns)
