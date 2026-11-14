@@ -716,7 +716,9 @@ def test_aerial_map_main_embeds_the_panel_once(tmp_path):
     assert summary["with_next_door"] == 2 and summary["small_model_roofs"] == 1 and summary["sharing_parcel"] == 0
     assert 'id="rw-panel"' in html and html.count('id="rw-data"') == 1 and html.count("window.roofPanel.register") == 4  # 4 roof layers
     assert "bindPopup" not in html and "<img" not in html  # no per-layer popups, no chip markup repeated per feature
-    assert html.count("Acme Coperture S.r.l.") == 1 and html.count("Z999_0012A0.345") == 2  # panel data once, parcel layer once
+    # panel data once, parcel layer once, and the Grants tab's list (one row per eligible roof, for filters and export) once
+    grants_data = html.split('id="rw-grants-data">', 1)[1].split("</script>", 1)[0] if 'id="rw-grants-data">' in html else ""
+    assert html.count("Acme Coperture S.r.l.") == 1 and html.count("Z999_0012A0.345") == 3 and grants_data.count("Z999_0012A0.345") == 1
     assert '"chips":"../data/processed/chips/"' in html
     feats = [json.loads(m) for m in re.findall(r"_add\((\{.*?\})\);", html)]
     roof_layers = [f for f in feats if f["features"] and "roof_id" in f["features"][0]["properties"]]

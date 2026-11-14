@@ -2,6 +2,26 @@
 
 How to use `outputs/contact_worksheet.csv` to contact the owners or occupants of roofs suspected to be asbestos-cement, one at a time. This is practical guidance, not legal advice. Have a lawyer or privacy consultant confirm it before you start, especially before any commercial use.
 
+## Grant-led workflow (start here)
+
+Grants are what makes owners act, and deadlines are what make removal companies buy. So work from the grant down:
+
+1. **Map page → Grants tab.** Each scheme's card shows:
+   - its status: OPEN with days left, upcoming, or closed ("prepare for the next call");
+   - how many candidate roofs may be eligible, and how sure the owner type is (confirmed by your lookup, guessed from public evidence, unknown);
+   - a funnel: to identify → owner identified → contacted → interested / not interested.
+2. **Show eligible roofs.** The list is ranked by score: roof size × asbestos score × owner-type certainty × solar fit (schemes that also fund panels) × contact stage. You can:
+   - filter by owner certainty, size, asbestos result, solar panels, stage, town, or search;
+   - click a town to open that roof on the map;
+   - use **Show on map** to highlight the filtered roofs, or **Export CSV** to download them.
+3. **Confirm owners where it matters most.** `outputs/grant_lists/<scheme>_owner_lookups.csv` holds the top 50 eligible roofs per scheme with no confirmed owner type, no owner and no company on site. The Agenzia delle Entrate form fields come first. Type the result in `contact_worksheet.csv`:
+   - `owner_type` (e.g. "azienda agricola", "srl", "privato", "comune") overrides the guess;
+   - `owner_from_visura` marks the owner as identified.
+4. **Contact and record.** `contact_date` / `contact_method` move a roof to "contacted". An `outcome` containing "interessato" (or "preventivo", "sopralluogo") marks it interested, and "non interessato" marks it not interested. `do_not_contact` removes it from every list.
+5. **Rebuild:** `python scripts/contact_worksheet.py && python scripts/aerial_map.py`. Lists, funnels and scores follow what you typed.
+
+`outputs/grant_lists/<scheme>.csv` is the full ranked list per scheme. While a scheme is closed, the list is your head start for its next call.
+
 ## What the worksheet gives you
 
 For each candidate roof (score >= 0.7, at least 500 m2, Brescia pilot):

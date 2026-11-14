@@ -112,4 +112,6 @@ Checked on 14 Nov 2026. `scripts/enrich_companies.py` -> `outputs/company_regist
 
 `src/roofwatch/grants.py` computes each scheme's status (open, upcoming, closed) on the day the map or worksheet is built. It also makes a best guess at each roof's owner type from public evidence: livestock permit or named farm site, a farm; industrial permit, business or company record, a company; public body record; a small roof with no business, a home. That guess picks the schemes shown in the map panel and in the worksheet columns `likely_owner_type`, `owner_type_evidence` and `grant_fit`.
 
+Per scheme, `scripts/contact_worksheet.py` also writes `outputs/grant_lists/<scheme>.csv` (eligible candidate roofs ranked by score) and `<scheme>_owner_lookups.csv` (the 50 lookups that would confirm the most valuable ones). Schemes that also fund solar panels carry `"solar": true`.
+
 **When a new call opens,** add or edit its entry in the JSON (dates, what, sources, `checked_on`), then run `scripts/contact_worksheet.py` and `scripts/aerial_map.py`.
