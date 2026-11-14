@@ -44,6 +44,7 @@ python scripts/embed_chips.py           # DINOv2 embeddings
 python scripts/train_aerial.py          # asbestos scores -> outputs/aerial_oof.parquet
 python scripts/pv_dataset.py && python scripts/embed_chips.py --chips data/processed/pv_chips --out data/processed/pv_chip_embeddings.parquet
 python scripts/train_pv.py && python scripts/score_pv_pilot.py          # solar-panel scores
+python scripts/fetch_named_sites.py     # named farm/industrial sites (Overture; OSM servers are not used)
 python scripts/contact_worksheet.py     # parcel, address, businesses per roof -> worksheet, roof_occupants, roof_addresses
 python scripts/enrich_companies.py      # company public record per business website (about 40 min the first time, then cached)
 python scripts/aerial_map.py            # outputs/aerial_map.html: click a roof for the owner and occupant panel

@@ -31,7 +31,9 @@ c = pa.to_crs(4326).union_all().centroid
 m = folium.Map(location=[c.y, c.x], zoom_start=12, tiles=None)
 folium.TileLayer(tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                  attr="Imagery &copy; Esri, Maxar, Earthstar Geographics", name="Satellite (Esri)", max_zoom=19).add_to(m)
-folium.TileLayer("OpenStreetMap", name="Map (OpenStreetMap)").add_to(m)
+# OpenStreetMap's tile servers block pages opened from a local file ('Access blocked'): keyless Esri street map
+folium.TileLayer(tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                     attr="Esri, HERE, Garmin, OpenStreetMap contributors", name="Street map (Esri)", max_zoom=19).add_to(m)
 
 for kind in ["ac", "ac_small_part", "partial", "ac_changed_since_label"]:
     sub = g[g["kind"] == kind]

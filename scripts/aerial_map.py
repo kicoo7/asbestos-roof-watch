@@ -162,7 +162,9 @@ def main(raw: Path = RAW, proc: Path = PROC, out: Path = OUT, html: Path | None 
                      name="Sentinel-2 2024, 10 m (free satellite, too coarse for roofs)", max_zoom=21, max_native_zoom=15).add_to(m)
     folium.TileLayer(tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                      attr="Imagery &copy; Esri, Maxar, Earthstar Geographics", name="Esri satellite (other date)", max_zoom=19).add_to(m)
-    folium.TileLayer("OpenStreetMap", name="OpenStreetMap", max_zoom=19).add_to(m)
+    # OpenStreetMap's tile servers block pages opened from a local file ('Access blocked'): keyless Esri street map
+    folium.TileLayer(tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                         attr="Esri, HERE, Garmin, OpenStreetMap contributors", name="Street map (Esri)", max_zoom=19).add_to(m)
 
     add_inputs(m, roofs, raw, set(ws["parcel_ref"].dropna()) if "parcel_ref" in ws.columns else set())
     r, solar = add_results(m, roofs)

@@ -18,6 +18,7 @@ def test_map_uses_keyless_basemaps_and_offers_satellite(tmp_path):
     out = tmp_path / "map.html"
     write_map(roofs, pd.Timestamp("2026-11-13"), out)
     html = out.read_text()
-    assert "basemaps.cartocdn.com" not in html
-    assert "tile.openstreetmap.org" in html
+    assert "basemaps.cartocdn.com" not in html      # needs an API key
+    assert "tile.openstreetmap.org" not in html     # blocks pages opened from a local file ("Access blocked")
+    assert "World_Street_Map" in html               # keyless street map
     assert "World_Imagery" in html

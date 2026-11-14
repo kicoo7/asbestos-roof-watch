@@ -107,7 +107,9 @@ def write_map(roofs: gpd.GeoDataFrame, run_date, path):
     c = g.union_all().centroid
     m = folium.Map(location=[c.y, c.x], zoom_start=12, tiles=None)
     # Keyless basemaps (CARTO now requires an API key)
-    folium.TileLayer("OpenStreetMap", name="Map (OpenStreetMap)").add_to(m)
+    # OpenStreetMap's tile servers block pages opened from a local file ('Access blocked'): keyless Esri street map
+    folium.TileLayer(tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                         attr="Esri, HERE, Garmin, OpenStreetMap contributors", name="Street map (Esri)", max_zoom=19).add_to(m)
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Imagery &copy; Esri, Maxar, Earthstar Geographics", name="Satellite (Esri)", max_zoom=19,
