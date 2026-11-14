@@ -60,6 +60,9 @@ ad = gpd.GeoDataFrame(ad, geometry=shapely.from_wkb(ad.pop("wkb")), crs=4326).to
 ad["address"] = (ad["street"].fillna("") + " " + ad["number"].fillna("")).str.strip() + ", " + ad["postcode"].fillna("") + " " + ad["postal_city"].fillna("")
 j = gpd.sjoin_nearest(r[["roof_id", "geometry"]], ad[["address", "geometry"]], max_distance=60, distance_col="address_dist_m")
 r = r.merge(j.drop_duplicates("roof_id")[["roof_id", "address", "address_dist_m"]], on="roof_id", how="left")
+# Overture's Italian address points often lack postcode and city: complete with the roof's municipality
+r["address"] = r["address"].str.replace(r",\s*$", "", regex=True)
+r.loc[r["address"].notna() & ~r["address"].str.contains(r"\d{5}", na=False), "address"] += ", " + r["comune"].str.title()
 
 # business located at the building (inside, or within 30 m), highest confidence first
 pl = pd.read_parquet(RAW / "overture_places_pilot.parquet")
