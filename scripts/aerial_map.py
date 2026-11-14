@@ -112,8 +112,12 @@ def add_results(m: folium.Map, roofs: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFram
     return r, solar
 
 
-def add_boxes(m: folium.Map, r: gpd.GeoDataFrame, companies: bool) -> None:
+def add_boxes(m: folium.Map, r: gpd.GeoDataFrame, companies: bool, aia: bool = False, osm: bool = False) -> None:
     company = "<li><b>Company records</b>: the businesses' own websites (legal notice), VAT checked with EU VIES.</li>" if companies else ""
+    if aia:  # upstream's other public sources, when the worksheet carries them
+        company += "<li><b>Environmental permits (AIA)</b>: Regione Lombardia permit holders. Licence not recorded.</li>"
+    if osm:
+        company += "<li><b>Named sites</b>: OpenStreetMap (ODbL).</li>"
     sources = f"""
 <details open class='rw-sources' style='position:fixed;top:10px;left:50px;z-index:9999;background:white;padding:8px 10px;
  max-width:min(420px,calc(100vw - 70px));max-height:70vh;overflow:auto;box-sizing:border-box;border:1px solid #999;font:12px sans-serif'>
@@ -168,7 +172,7 @@ def main(raw: Path = RAW, proc: Path = PROC, out: Path = OUT, html: Path | None 
     groups[""] = ("Roof >= 500 m2 without solar panels, no asbestos result", SOLAR)  # clickable only in the solar layer
     chips = Path(os.path.relpath(proc / "chips", html.parent)).as_posix() + "/"
     m.get_root().html.add_child(folium.Element(panel_html(details, m.get_name(), groups, chips)))
-    add_boxes(m, r, inputs["companies"] is not None)
+    add_boxes(m, r, inputs["companies"] is not None, aia="aia_company" in ws.columns, osm="osm_name" in ws.columns)
     folium.LayerControl(collapsed=False).add_to(m)
     m.save(str(html))
     print("groups:", r.group.value_counts().to_dict(), "| worksheet joined:", "parcel_ref" in ws.columns)
@@ -176,6 +180,7 @@ def main(raw: Path = RAW, proc: Path = PROC, out: Path = OUT, html: Path | None 
                "with_businesses": sum("occupants" in d for d in details.values()),
                "with_next_door": sum("next_door" in d for d in details.values()),
                "with_company_record": sum("companies" in d for d in details.values()),
+               "with_other_sources": sum("other" in d for d in details.values()),
                "sharing_parcel": sum("same_parcel" in d for d in details.values()),
                "small_model_roofs": sum("small_roof" in d for d in details.values()),
                "do_not_contact": sum("do_not_contact" in d for d in details.values()), "html_mb": round(html.stat().st_size / 1e6, 1)}

@@ -80,6 +80,15 @@ Piedmont's regional topographic database (BDTRE) was not compared on its own. Pi
 
 BrightQuery listings come from company-registry style data, so a "business name" can be a sole trader's personal name.
 
+## Company on site: AIA permits and OpenStreetMap names
+
+| Item | Value |
+|---|---|
+| `data/raw/aia_bs.gpkg` | 480 environmental permit (AIA) holders, Regione Lombardia: company name, type (237 intensive livestock, 184 industrial, 59 waste), address. Used within 200 m of a roof |
+| `data/raw/osm_named_pilot.gpkg` | 547 named OpenStreetMap features (419 farmyards, industrial and commercial sites, companies): name, operator, kind, website. ODbL. Used within 150 m of a roof |
+| Known gap | The download steps for these two files are not in the repo yet, and the licence of the AIA dataset is not recorded |
+| Used by | `scripts/contact_worksheet.py` -> `known_company`, `known_company_source` and the `aia_*` / `osm_*` columns of the worksheet; the map panel's "Other public sources" |
+
 ## Company public record: business websites and EU VIES
 
 Checked on 14 Nov 2026. `scripts/enrich_companies.py` -> `outputs/company_register.csv`, one row per website domain.

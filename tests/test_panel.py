@@ -511,6 +511,121 @@ def test_subdomain_of_a_hidden_sole_traders_site_is_hidden_near_an_objection():
                                                                                          "Rossi Mario Idraulica"]
 
 
+OTHER = {  # upstream's optional worksheet columns: a one-person farm's permit and named site (names may be the person's)
+    "aia_company": "Allevamento Bianchi Luca", "aia_type": "livestock farm", "aia_address": "Via Stalla 4, 25000 Testville", "aia_dist_m": "35.2",
+    "osm_name": "Cascina Bianca", "osm_operator": "Bianchi Luca", "osm_kind": "farmyard", "osm_dist_m": "12",
+    "osm_website": "https://www.cascina.example/chi-siamo?tel=0301234567", "known_company": "Allevamento Bianchi Luca",
+    "known_company_source": "AIA permit", "parcel_company": "Caseificio Sul Lotto", "parcel_company_source": "OSM name (same parcel)",
+    "company_search": "https://www.google.com/search?q=Allevamento"}
+
+
+def test_other_public_sources_and_best_guess_from_optional_worksheet_columns():
+    occ = csv([{"roof_id": "1", "rank": "1", "relation": "next_door", "name": "Vicino", "dist_m": "8", "adjoining": "False"},
+               {"roof_id": "2", "rank": "1", "relation": "at_building", "name": "Acme Coperture", "inside": "True", "dist_m": "0"}])
+    ws = pd.concat([worksheet(**OTHER), worksheet(roof_id="2", parcel_ref="Z999_0002A0.2", **OTHER)], ignore_index=True)
+    d = build_details(roofs(), ws, occ)
+    assert d[1]["known"] == {"name": "Allevamento Bianchi Luca", "source": "AIA permit"}
+    assert "known" not in d[2]  # a business is listed at the building: no guess
+    assert d[1]["other"] == {
+        "aia": {"name": "Allevamento Bianchi Luca", "type": "livestock farm", "address": "Via Stalla 4, 25000 Testville", "dist_m": 35},
+        "osm": {"name": "Cascina Bianca", "operator": "Bianchi Luca", "kind": "farmyard", "website": "https://www.cascina.example/chi-siamo",
+                "domain": "cascina.example", "dist_m": 12},
+        "parcel": {"name": "Caseificio Sul Lotto", "source": "OSM name (same parcel)"}}
+    plain = build_details(roofs([1]), worksheet(), occ)[1]
+    assert "other" not in plain and "known" not in plain  # every column is optional
+    page = panel_html(d, "map_test")
+    for text in ("Other public sources", "Environmental permit (AIA): ", "source: Regione Lombardia AIA permits", "source: OpenStreetMap",
+                 "On the same parcel: ", "Best guess for the company on site", "otherNames(d).forEach(function (n) { put(n, false); });",
+                 "occ.concat(nd, otherNames(d)"):
+        assert text in page, text
+    # the same privacy as listings: scrubbed names, address-safe scrub, websites through public_website
+    risky = OTHER | {"aia_company": "Rossi Luca Tel3331234567", "osm_website": "https://wa.me/393331234567",
+                     "aia_address": "Via Roma 1234 25010 Brescia tel. 030 1234567"}
+    o = build_details(roofs([1]), worksheet(**risky), occ)[1]["other"]
+    assert o["aia"]["name"] == "Rossi Luca" and o["aia"]["address"] == "Via Roma 1234 25010 Brescia tel. [removed]"
+    assert "website" not in o["osm"] and "domain" not in o["osm"]
+
+
+def test_other_sources_hidden_on_objecting_roofs_and_wherever_the_names_appear():
+    # roof 1 objects; roof 2 is near the same farm (same permit and site); roof 3 lists the site's name next door
+    other3 = OTHER | {"aia_company": "Altra Ditta S.p.A.", "osm_name": "Altro Sito", "osm_operator": "", "osm_website": "", "parcel_company": "",
+                      "known_company": "Altra Ditta S.p.A."}
+    ws = pd.concat([worksheet(do_not_contact="yes", **OTHER), worksheet(roof_id="2", parcel_ref="Z999_0002A0.2", **OTHER),
+                    worksheet(roof_id="3", parcel_ref="Z999_0003A0.3", **other3)], ignore_index=True)
+    occ = csv([{"roof_id": "3", "rank": "1", "relation": "next_door", "name": "Cascina Bianca", "dist_m": "20"}])
+    d = build_details(roofs(), ws, occ)
+    assert d[1]["other"] == {"hidden": True} and d[1]["known"] == {"hidden": True}
+    assert d[2]["other"] == {"aia": {"hidden": True, "type": "livestock farm", "dist_m": 35},
+                             "osm": {"hidden": True, "kind": "farmyard", "dist_m": 12}, "parcel": {"hidden": True}}
+    assert d[2]["known"] == {"hidden": True}
+    assert d[3]["other"]["aia"]["name"] == "Altra Ditta S.p.A." and d[3]["known"]["name"] == "Altra Ditta S.p.A."
+    assert d[3]["next_door"] == [{"hidden": True, "dist_m": 20}]  # the farm's name as a listing elsewhere
+    page = json.dumps(d)
+    for gone in ("Bianchi", "Cascina", "Caseificio", "cascina.example"):
+        assert gone not in page, gone
+    assert "Hidden: do not contact" in panel_html(d, "map_test")
+
+
+def test_suppressed_site_or_name_hides_other_source_entries():
+    occ = csv([{"roof_id": "2", "rank": "1", "relation": "at_building", "name": "Allevamento Bianchi Luca", "website": "http://bianchi-farm.example",
+                "inside": "True", "dist_m": "0"}])
+    d = build_details(roofs(), worksheet(**OTHER), occ, suppress={"cascina.example", "bianchi-farm.example"})
+    assert d[1]["other"]["osm"]["hidden"] is True and d[1]["other"]["aia"]["hidden"] is True and d[1]["known"] == {"hidden": True}
+    assert d[1]["other"]["parcel"]["name"] == "Caseificio Sul Lotto"  # not named like anything suppressed
+    assert "Bianchi" not in json.dumps(d) and "Cascina" not in json.dumps(d)
+
+
+def test_best_guess_is_hidden_with_the_entry_it_came_from():
+    # review7 must fix 1, the review's minimal input: (a) an objection on roof A whose site is roof B's OSM website
+    a = {"business_name": None, "osm_website": "https://bianchi-farm.it"}
+    b = {"business_name": None, "osm_name": "Agriturismo B", "osm_website": "https://www.bianchi-farm.it/x", "known_company": "Agriturismo B",
+         "known_company_source": "OSM name"}
+    ws = pd.concat([worksheet(do_not_contact="yes", **a), worksheet(roof_id="2", parcel_ref="Z999_0002A0.2", **b)], ignore_index=True)
+    d = build_details(roofs(), ws)
+    assert d[2]["other"]["osm"]["hidden"] is True and d[2]["known"] == {"hidden": True}
+    assert "Agriturismo B" not in json.dumps(d)
+    # (b) a suppressed domain: the OSM site goes, and so does the best guess that names it
+    s = {"business_name": None, "osm_name": "Agriturismo S", "osm_operator": "Gestioni S", "osm_website": "https://supp-farm.it",
+         "known_company": "Gestioni S", "known_company_source": "OSM operator"}
+    d = build_details(roofs(), worksheet(roof_id="2", **s), suppress={"supp-farm.it"})
+    assert d[2]["other"]["osm"]["hidden"] is True and d[2]["known"] == {"hidden": True}
+    assert "Agriturismo S" not in json.dumps(d) and "Gestioni S" not in json.dumps(d)
+    # a best guess sharing its name with a hidden listing next door goes too, whatever its source
+    occ = csv([{"roof_id": "2", "rank": "1", "relation": "next_door", "name": "Rossi Mario Idraulica", "website": "http://rossimario.example",
+                "dist_m": "9"}])
+    w = worksheet(roof_id="2", business_name=None, known_company="Rossi Mario Idraulica", known_company_source="Overture places")
+    d = build_details(roofs(), w, occ, suppress={"rossimario.example"})
+    assert d[2]["known"] == {"hidden": True} and "Rossi Mario" not in json.dumps(d)
+
+
+def test_same_parcel_entry_from_known_company_with_the_objection_rule():
+    # review7 minor 1: today's worksheet has no parcel_company columns, the same-parcel name arrives as known_company
+    ws = pd.concat([worksheet(do_not_contact="yes", business_name=None, known_company="VERDI LUIGI", known_company_source="AIA permit (same parcel)"),
+                    worksheet(roof_id="2", parcel_ref="Z999_0002A0.2", business_name=None, aia_company="VERDI LUIGI", aia_type="livestock farm"),
+                    worksheet(roof_id="3", parcel_ref="Z999_0003A0.3", business_name=None, known_company="Caseificio Tre",
+                              known_company_source="OSM name (same parcel)")], ignore_index=True)
+    d = build_details(roofs(), ws)
+    assert d[3]["other"] == {"parcel": {"name": "Caseificio Tre", "source": "OSM name (same parcel)"}}
+    assert d[2]["other"] == {"aia": {"hidden": True, "type": "livestock farm"}} and d[1]["other"] == {"hidden": True}
+    assert "VERDI" not in json.dumps(d)
+    future = worksheet(business_name=None, parcel_company="Lotto Uno", parcel_company_source="AIA permit (same parcel)", known_company="Altro",
+                       known_company_source="OSM name (same parcel)")
+    assert build_details(roofs([1]), future)[1]["other"]["parcel"] == {"name": "Lotto Uno", "source": "AIA permit (same parcel)"}
+
+
+def test_data_used_box_lists_aia_and_osm_when_the_worksheet_has_them(tmp_path):
+    # review7 minor 5
+    paths = write_pilot(tmp_path)
+    load_map_script().main(**paths)
+    html = (paths["out"] / "aerial_map.html").read_text()
+    assert "Environmental permits (AIA)" not in html and "OpenStreetMap (ODbL)" not in html
+    worksheet(**OTHER).to_csv(paths["out"] / "contact_worksheet.csv", index=False)
+    load_map_script().main(**paths)
+    html = (paths["out"] / "aerial_map.html").read_text()
+    assert "<b>Environmental permits (AIA)</b>: Regione Lombardia permit holders. Licence not recorded." in html
+    assert "<b>Named sites</b>: OpenStreetMap (ODbL)." in html
+
+
 def test_shared_host_is_not_a_listing_identity():
     # review3 minor 4: a hidden listing with a Facebook page must not hide every listing with a Facebook page
     occ = csv([{**ROSSI[0], "website": "https://www.facebook.com/rossimario"}, ROSSI[3]])

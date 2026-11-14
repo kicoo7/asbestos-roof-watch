@@ -56,6 +56,8 @@ Each candidate roof (score >= 0.7, >= 500 m2; 1,258 roofs) gets:
 
 How businesses are attached to roofs changed on 14 Nov 2026. A listing now belongs to the building it is inside, or else to the single nearest building. Before, each candidate took the nearest listing within 30 m, which gave 329 candidates a business but put 136 of those on a building the listing does not belong to (about 30 of the listings sit inside another building). Those 136 now show the listing as "next door".
 
+With environmental permit holders (AIA) and named OpenStreetMap sites added, 42% of candidates have a company name from an open source (`known_company`). `outputs/visura_queue.csv` lists the 50 largest parcels that still have none.
+
 429 candidates share their parcel with another candidate (167 parcels). The map panel lists them together, since they are one property.
 
 Owner names are not open data. Look them up one at a time with a visura per immobile. Phones and emails are left out on purpose; see `docs/CONTACTING.md`.

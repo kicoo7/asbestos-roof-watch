@@ -54,6 +54,7 @@ Click a roof in `outputs/aerial_map.html` to see what is publicly known about wh
 | Property | address, cadastral reference (with a copy button), other candidate roofs on the same parcel | Overture addresses; Agenzia delle Entrate parcels |
 | Businesses at this building | up to 5 listings: name, category, website, address | Overture places (`outputs/roof_occupants.csv`) |
 | Next door (within 30 m) | businesses listed at a neighbouring building, marked "adjoining building" when the two buildings touch | same |
+| Other public sources | environmental permit holder within 200 m, named OpenStreetMap site within 150 m, a company found on the same parcel; a "best guess" line when no business is listed at the building | Regione Lombardia AIA permits; OpenStreetMap |
 | Company public record | VAT number (Partita IVA), legal name and form, registered office, REA | the business's own website, checked against the EU VIES service (`outputs/company_register.csv`) |
 | Owner (from your own visura) | what you typed in the worksheet | you |
 | Look up | links for one-at-a-time lookups: web search, Agenzia delle Entrate (visura), business register, VIES | |
@@ -67,7 +68,37 @@ How to read the company record:
 - **Notes on a record:** "Legal name differs from the listing" means the name on the website does not look like the listed business, so check it is the same one. "Chain or shared website" means several differently named businesses list that website, so the record may be the franchisor's. "Read over a connection with an invalid certificate" means the site's certificate could not be verified.
 - No phone numbers, emails, PEC addresses or names of directors are kept or shown, by design. A "website" that is really a WhatsApp or Telegram link, or that carries a phone number or e-mail address, is dropped.
 
-On a roof marked `do_not_contact` the panel hides the owner name, the notes and the outcome, and leaves the roof out of the map's search. It also hides what could name the person: company records of sole traders at or next door to that roof, and business listings that are linked to a sole trader's record or share two or more words with that sole trader's legal name. A listing with no company record is still shown, even if its name is a person's. If it has a website, put that on the suppression list above. Hidden listings show as "Business listing hidden: do not contact", on that roof and on its neighbours. Listings of companies stay. This hides more than strictly needed, on purpose.
+On a roof marked `do_not_contact` the panel hides the owner name, the notes and the outcome, and leaves the roof out of the map's search. It also hides what could name the person: company records of sole traders at or next door to that roof, and business listings that are linked to a sole trader's record or share two or more words with that sole trader's legal name. A listing with no company record is still shown, even if its name is a person's. If it has a website, put that on the suppression list above. Hidden listings show as "Business listing hidden: do not contact", on that roof and on its neighbours. Listings of companies stay. The "Other public sources" section is hidden there too, and the same permit holder or site name is hidden on other roofs. This hides more than strictly needed, on purpose.
+
+## From parcel to a contact: four routes
+
+**1. Open registries that name the company at a location (automatic, in the worksheet).** `known_company` takes the first available of:
+
+| Source | Rule |
+|---|---|
+| Overture places | the best business listing at the building (inside the footprint, or within 30 m and nearer to this roof than to any other building) |
+| AIA environmental permits (Regione Lombardia) | industry, intensive livestock or waste plant within 200 m |
+| OpenStreetMap | named farmyard, industrial site or operator within 150 m |
+| Any of the above | anywhere inside the roof's cadastral parcel |
+
+Coverage in the Brescia pilot: 42% of the 1,258 candidate roofs (Overture at the building 193, OpenStreetMap 180, AIA permit 102, same parcel 58). A further 136 candidates have a business listed next door only (`nearby_business_name`); it is not counted here.
+
+A permit holder or an OpenStreetMap name can be a farm run by one person. Treat such a name like a sole trader's (rule 8 below).
+
+**2. Owner from the cadastre (manual).** `outputs/visura_queue.csv` lists the 50 largest candidate parcels with no company found, no owner typed yet and no objection. It is rebuilt on every run, so do not type into it: put the result in `owner_from_visura`, `owner_type` and `notes` of `contact_worksheet.csv`, which keeps what you type. The parcel then leaves the queue.
+- For each, request a *visura per immobile* (town code + foglio + particella) on the Agenzia delle Entrate site (SPID).
+- If the owner is a company, look up its registered office and VAT number in the business register (registroimprese.it). The first search is free; the full company report costs a few euros.
+- If the owner is a private person, do not build a list. Contact them only by an individual letter with the art. 14 notice.
+
+**3. Manual identification.** `street_view` opens Google Street View at the roof: company signs on gates and facades are often readable. `company_search` runs a web search for the company found, to reach its own website and published business contacts.
+
+**4. Channels that already have a relationship with the owners.** No personal data is needed on your side for any of these:
+- **Municipalities:** an asbestos awareness campaign to owners. Councils have a public-interest reason and their own data, and you can offer the map.
+- **Farmers' associations:** Coldiretti, Confagricoltura and CIA Brescia. Their agricultural service centres (CAA) manage members' farm records and can inform members about removal and Agrisolare.
+- **Business associations:** Confindustria Brescia, Confartigianato, CNA.
+- **Inbound:** adverts geo-targeted to the industrial zones around candidate roofs, unaddressed leaflets in those zones, and a landing page ("Is my roof asbestos? Which grants apply?"). Owners who reply have given consent.
+
+Not acceptable: matching owners' tax codes to phone numbers, buying phone or email lists, or scraping personal contact details. That is what the Garante sanctioned in the Realmaps case.
 
 ## Rules of thumb
 

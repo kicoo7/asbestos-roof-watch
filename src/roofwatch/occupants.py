@@ -26,8 +26,9 @@ WORKSHEET_MANUAL = ["owner_from_visura", "owner_type", "contact_method", "contac
 WORKSHEET_GENERATED = ("priority", "roof_id", "status", "comune", "area_m2", "model_score", "solar_panels_score", "comune_code",
                        "foglio", "particella", "parcel_ref", "parcel_share", "other_parcels", "address", "address_dist_m",
                        "business_name", "business_category", "business_website", "business_address", "business_dist_m",
-                       "n_businesses", "n_nearby_businesses", "nearby_business_name", "nearby_business_website", "lat", "lon",
-                       "google_maps")
+                       "n_businesses", "n_nearby_businesses", "nearby_business_name", "nearby_business_website", "aia_company",
+                       "aia_type", "aia_address", "aia_dist_m", "osm_name", "osm_operator", "osm_kind", "osm_website", "osm_dist_m",
+                       "known_company", "known_company_source", "lat", "lon", "google_maps", "street_view", "company_search")
 REPEATED = "{key} repeated in old worksheet"  # orphan_reason of the second row typed for the same roof
 OCCUPANT_COLS = ["roof_id", "relation", "rank", "place_id", "name", "category", "website", "address", "dist_m", "inside", "confidence",
                  "source", "adjoining"]
@@ -137,16 +138,31 @@ def is_suppressed(url, domains) -> bool:
     return d is not None and any(d == x or d.endswith("." + x) for x in domains)
 
 
-def drop_suppressed(df: pd.DataFrame, domains, website_col: str = "website", name_col: str = "name") -> pd.DataFrame:
-    """`df` (Overture places, or roof_occupants rows) without the suppressed businesses: listings whose website is on a
-    suppressed domain or a subdomain of one, and any other listing with the same normalised name (the same business listed
-    by another source without that website would otherwise take its place)."""
-    if not domains or df.empty or website_col not in df:
-        return df
+def _business_key(name) -> str:
+    return name_key(scrub_contact(name))  # as the name is written out: 'Rossi Mario Tel. 333...' is 'Rossi Mario'
+
+
+def suppressed_names(df: pd.DataFrame | None, domains, website_col: str = "website", name_col="name") -> set:
+    """Name keys of the rows of `df` whose website is on a suppressed domain or a subdomain of one (`name_col`: one or more)."""
+    if df is None or df.empty or not domains or website_col not in df:
+        return set()
     hit = df[website_col].map(lambda u: is_suppressed(u, domains)).astype(bool)
-    if name_col in df:
-        keys = df[name_col].map(lambda n: name_key(scrub_contact(n)))  # as the name is written: 'Rossi Mario Tel. 333...'
-        hit |= keys.isin({k for k in keys[hit] if k})
+    cols = [c for c in ([name_col] if isinstance(name_col, str) else name_col) if c in df]
+    return {k for c in cols for k in df.loc[hit.values, c].map(_business_key) if k}
+
+
+def drop_suppressed(df: pd.DataFrame, domains, website_col: str = "website", name_col="name", names=frozenset()) -> pd.DataFrame:
+    """`df` (Overture places, roof_occupants rows, AIA permit holders, OSM named features) without the suppressed businesses:
+    rows whose website is on a suppressed domain or a subdomain of one, and any row whose name (`name_col`: one or more
+    columns) is the name of a suppressed business: of this frame's suppressed rows, or in `names` (from the other sources).
+    The same business listed without that website, or as a permit holder or an OSM site, would otherwise take its place."""
+    if df is None or df.empty or not (domains or names):
+        return df
+    hit = df[website_col].map(lambda u: is_suppressed(u, domains)).astype(bool) if website_col in df else pd.Series(False, index=df.index)
+    keys = set(names) | suppressed_names(df, domains, website_col, name_col)
+    for c in ([name_col] if isinstance(name_col, str) else name_col):
+        if c in df and keys:
+            hit |= df[c].map(_business_key).isin(keys)
     return df[~hit.values]
 
 
@@ -460,6 +476,18 @@ def carry_objections(merged: pd.DataFrame, objections: pd.DataFrame, orphans_nam
     return spread_objections(merged, key, guard, col, notes), reached
 
 
+def _backup(path: Path, raw: bytes, now: datetime) -> Path:
+    """Write `raw` (the file as it was read) to <stem>.backup-YYYYmmdd-HHMMSS<suffix>, never over an earlier backup."""
+    backup, n = path.with_name(f"{path.stem}.backup-{now:%Y%m%d-%H%M%S}{path.suffix}"), 1
+    while backup.exists():  # two runs in the same second must not overwrite a backup
+        n += 1
+        backup = path.with_name(f"{path.stem}.backup-{now:%Y%m%d-%H%M%S}-{n}{path.suffix}")
+    tmp = backup.with_name(f".{backup.name}.tmp")
+    tmp.write_bytes(raw)
+    tmp.replace(backup)
+    return backup
+
+
 def save_worksheet(new: pd.DataFrame, ws_path, orphans_path, manual_cols=WORKSHEET_MANUAL, generated_cols=WORKSHEET_GENERATED,
                    now: datetime | None = None, key: str = "roof_id", dnc: str = "do_not_contact") -> dict:
     """Write the regenerated worksheet `new` to ws_path without losing anything typed by hand. In this order:
@@ -501,13 +529,7 @@ def save_worksheet(new: pd.DataFrame, ws_path, orphans_path, manual_cols=WORKSHE
     unreached = list(dict.fromkeys(_rid(r) or _text(r).strip() or "?" for r, ok in zip(ids, reached) if not ok))
     backup = None
     if old is not None and has_manual(old, manual).any():
-        backup, n = ws_path.with_name(f"{ws_path.stem}.backup-{now:%Y%m%d-%H%M%S}{ws_path.suffix}"), 1
-        while backup.exists():  # two runs in the same second must not overwrite a backup
-            n += 1
-            backup = ws_path.with_name(f"{ws_path.stem}.backup-{now:%Y%m%d-%H%M%S}-{n}{ws_path.suffix}")
-        tmp = backup.with_name(f".{backup.name}.tmp")
-        tmp.write_bytes(raw)
-        tmp.replace(backup)
+        backup = _backup(ws_path, raw, now)
     if len(orphans):
         allo = pd.concat([prev, orphans], ignore_index=True).fillna("") if prev is not None else orphans
         write_csv(allo.drop_duplicates([c for c in allo.columns if c != "orphaned_at"]), orphans_path)
@@ -515,3 +537,111 @@ def save_worksheet(new: pd.DataFrame, ws_path, orphans_path, manual_cols=WORKSHE
     return {"backup": backup, "carried": int(has_manual(merged, manual).sum()),
             "orphans": orphans["orphan_reason"].value_counts().to_dict() if len(orphans) else {},
             "objection_rows": touched, "objections_unreached": unreached}
+
+
+# --- the company on site: AIA permit holders, named OSM features, same-parcel fallback, owner-lookup queue -------------------
+# A permit holder or an OSM site can be a farm run by one person: names are contact-scrubbed and suppression applies to them.
+AIA_TYPES = {"ALL": "livestock farm", "IND": "industrial plant", "RIF": "waste plant"}
+# best guess at the company on site, by source reliability (the business at the building is the rank-1 at_building listing)
+COMPANY_SOURCES = (("business_name", "Overture places"), ("aia_company", "AIA permit"), ("osm_operator", "OSM operator"),
+                   ("osm_name", "OSM name"))
+QUEUE_COLS = ["priority", "roof_id", "comune", "area_m2", "model_score", "comune_code", "foglio", "particella", "parcel_ref", "address",
+              "street_view"]
+QUEUE_FILL_IN = ("owner_from_visura", "owner_type", "vat_or_tax_code_company_only", "registered_office", "notes")  # an older version's
+
+
+def _none_if_blank(s: pd.Series) -> pd.Series:
+    return s.where(s != "", None)
+
+
+def prepare_aia(aia: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Regione Lombardia AIA permit holders -> aia_company (contact-scrubbed), aia_type, aia_address (e-mails removed)."""
+    col = lambda c: _clean(aia[c]) if c in aia else pd.Series("", index=aia.index)
+    typ = col("TIPOLOGIA_")
+    out = gpd.GeoDataFrame({
+        "aia_company": _none_if_blank(col("RAGIONE_SO").map(scrub_contact)),
+        "aia_type": _none_if_blank(typ.map(lambda t: AIA_TYPES.get(t, t))),
+        "aia_address": _none_if_blank(pd.Series([scrub_contact(_join(_join(st.title(), n, sep=" "), _join(cap, c.title(), sep=" ")), phones=False)
+                                                 for st, n, cap, c in zip(col("INDIRIZZO"), col("NUM_CIVICO"), col("CAP"), col("COMUNE"))],
+                                                index=aia.index, dtype=object))},
+        geometry=aia.geometry.values, crs=aia.crs)
+    return out[out["aia_company"].notna().values]
+
+
+def prepare_osm(osm: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Named OpenStreetMap features -> osm_name, osm_operator (contact-scrubbed), osm_kind, osm_website (public_website)."""
+    col = lambda c: _clean(osm[c]) if c in osm else pd.Series("", index=osm.index)
+    out = gpd.GeoDataFrame({"osm_name": _none_if_blank(col("osm_name").map(scrub_contact)),
+                            "osm_operator": _none_if_blank(col("osm_operator").map(scrub_contact)),
+                            "osm_kind": _none_if_blank(col("osm_kind")),
+                            "osm_website": col("osm_website").map(public_website).astype(object)},
+                           geometry=osm.geometry.values, crs=osm.crs)
+    return out[(out["osm_name"].notna() | out["osm_operator"].notna()).values]
+
+
+def nearest_point(roofs: gpd.GeoDataFrame, points: gpd.GeoDataFrame, max_dist_m: float, dist_col: str) -> pd.DataFrame:
+    """Per roof, the nearest of `points` within max_dist_m -> roof_id, the points' columns, dist_col. Ties: the point listed first."""
+    cols = [c for c in points.columns if c != points.geometry.name]
+    if points.empty or roofs.empty:
+        return pd.DataFrame(columns=["roof_id", *cols, dist_col])
+    pts = (points.to_crs(roofs.crs) if points.crs != roofs.crs else points).reset_index(drop=True).assign(_pi=lambda d: range(len(d)))
+    j = gpd.sjoin_nearest(roofs[["roof_id", "geometry"]].reset_index(drop=True), pts, max_distance=max_dist_m, distance_col=dist_col)
+    return j.sort_values(["roof_id", dist_col, "_pi"]).drop_duplicates("roof_id")[["roof_id", *cols, dist_col]].reset_index(drop=True)
+
+
+def parcel_companies(named, parcels: gpd.GeoDataFrame, refs) -> pd.DataFrame:
+    """A business, permit holder or named site anywhere inside a candidate's cadastral parcel (the same property).
+    `named`: (source label, GeoDataFrame with `name`) in order of preference; `parcels`: `ref` polygons; `refs`: the parcel
+    references to look at. -> parcel_ref, parcel_company, parcel_company_source: one row per parcel, the first source wins."""
+    cols = ["parcel_ref", "parcel_company", "parcel_company_source"]
+    par = parcels[parcels["ref"].isin(set(refs))][["ref", "geometry"]].rename(columns={"ref": "parcel_ref"})
+    parts = [gpd.GeoDataFrame({"parcel_company": g["name"].map(scrub_contact).values, "parcel_company_source": label, "_rank": k},
+                              geometry=g.geometry.values, crs=g.crs).to_crs(par.crs) for k, (label, g) in enumerate(named) if len(g)]
+    if par.empty or not parts:
+        return pd.DataFrame(columns=cols)
+    pts = pd.concat(parts, ignore_index=True)
+    pts = gpd.GeoDataFrame(pts[pts["parcel_company"] != ""].assign(_pi=lambda d: range(len(d))), geometry="geometry", crs=par.crs)
+    j = gpd.sjoin(pts, par, predicate="within")
+    return j.sort_values(["parcel_ref", "_rank", "_pi"]).drop_duplicates("parcel_ref")[cols].reset_index(drop=True)
+
+
+def known_company(df: pd.DataFrame, sources=COMPANY_SOURCES) -> tuple[pd.Series, pd.Series]:
+    """Best guess at the company on site -> (known_company, known_company_source). The first non-blank of `sources` (business
+    at the building, AIA permit holder, OSM operator, OSM name); else `parcel_company` with `parcel_company_source` when
+    `df` has them (something inside the same cadastral parcel). None and '' when nothing is known."""
+    company, source = pd.Series(None, index=df.index, dtype=object), pd.Series("", index=df.index, dtype=object)
+    for col, label in [*sources, ("parcel_company", None)]:
+        if col not in df:
+            continue
+        v = df[col].map(_text).str.strip()
+        take = company.isna() & (v != "")
+        company[take] = v[take]
+        source[take] = label if label is not None else df.loc[take, "parcel_company_source"].map(_text)
+    return company, source
+
+
+def visura_queue(ws: pd.DataFrame, n: int = 50) -> pd.DataFrame:
+    """Read only: type what a visura tells you into contact_worksheet.csv (owner_from_visura, owner_type, notes), which keeps it.
+
+    The owner lookups (visura per immobile) to do next, rebuilt on every run from the worksheet as written: the n largest
+    candidate parcels where no company was found on any roof of the parcel, no owner_from_visura is typed and nobody
+    objected (occupants.is_objection, after the parcel-wide spread). One row per parcel: its largest roof (lowest priority).
+    """
+    ref = ws["parcel_ref"].map(_text).str.strip()
+    blank = lambda c: ws[c].map(_text).str.strip() == "" if c in ws else pd.Series(True, index=ws.index)
+    stop = ~blank("known_company") | ~blank("owner_from_visura") | ws.get("do_not_contact", pd.Series("", index=ws.index)).map(is_objection)
+    stop_parcel = stop.groupby(ref).transform("any")
+    q = ws[(ref != "").values & ~stop_parcel.values].assign(_prio=lambda d: pd.to_numeric(d["priority"], errors="coerce"))
+    q = q.sort_values("_prio", kind="stable").drop_duplicates("parcel_ref").head(n)
+    return q[[c for c in QUEUE_COLS if c in q]].reset_index(drop=True)
+
+
+def save_visura_queue(queue: pd.DataFrame, path, now: datetime | None = None) -> Path | None:
+    """Write the queue. An existing file holding anything typed in the fill-in columns an earlier version had
+    (QUEUE_FILL_IN) is first saved as visura_queue.backup-YYYYmmdd-HHMMSS.csv: never overwritten silently. -> backup or None."""
+    path, now = Path(path), now or datetime.now()
+    raw = path.read_bytes() if path.exists() else None
+    old = _parse_table(raw) if raw is not None else None
+    backup = _backup(path, raw, now) if old is not None and has_manual(old, QUEUE_FILL_IN).any() else None
+    write_csv(queue, path)
+    return backup

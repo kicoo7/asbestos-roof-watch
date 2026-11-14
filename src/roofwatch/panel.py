@@ -244,6 +244,24 @@ def _listing_keys(o: dict) -> set[tuple[str, str]]:
     return {k for k in (("dom", business_domain(o.get("website"))), ("name", _name_key(o.get("name")))) if k[1]}
 
 
+OTHER_NAMES = ("aia_company", "osm_name", "osm_operator")  # names from public registers that may be a person's (a one-person farm)
+
+
+def _other_sources(w: dict) -> dict:
+    """The worksheet's other public sources for a roof (each optional): the environmental permit holder (Regione Lombardia
+    AIA), the named OpenStreetMap site, and the business found on the same parcel when nothing was at the building."""
+    web = public_website(w.get("osm_website"))
+    aia = _compact({"name": _s(w.get("aia_company")), "type": _words(w.get("aia_type")), "address": _s(w.get("aia_address"), address=True),
+                    "dist_m": _num(w.get("aia_dist_m"))})
+    osm = _compact({"name": _s(w.get("osm_name")), "operator": _s(w.get("osm_operator")), "kind": _words(w.get("osm_kind")),
+                    "website": web, "domain": normalize_domain(web), "dist_m": _num(w.get("osm_dist_m"))})
+    parcel = _compact({"name": _s(w.get("parcel_company")), "source": _s(w.get("parcel_company_source"))})
+    if "name" not in parcel and (_s(w.get("known_company_source")) or "").endswith("(same parcel)"):  # today's worksheet
+        parcel = _compact({"name": _s(w.get("known_company")), "source": _s(w.get("known_company_source"))})
+    return _compact({"aia": aia if "name" in aia else None, "osm": osm if osm.keys() & {"name", "operator"} else None,
+                     "parcel": parcel if "name" in parcel else None})
+
+
 def build_details(roofs: pd.DataFrame, worksheet: pd.DataFrame | None = None, occupants: pd.DataFrame | None = None,
                   addresses: pd.DataFrame | None = None, companies: pd.DataFrame | None = None,
                   orphans: pd.DataFrame | None = None, suppress=None) -> dict[int, dict]:
@@ -343,6 +361,21 @@ def build_details(roofs: pd.DataFrame, worksheet: pd.DataFrame | None = None, oc
     if sup:  # a suppressed business disappears from every roof, also where it is listed under another website
         everywhere = [o for rid in set(occ) | set(ws) for o in sum(listings(rid), [])]
         hidden_keys |= set().union(*(_listing_keys(o) for o in everywhere if suppressed(o.get("domain"))))
+    # permit holders and named sites at an objecting property may be the person: their names (and site) go wherever they appear
+    for rid in dnc_kind:
+        for row in ws.get(rid, []):
+            o = _other_sources(row)
+            names = [row.get(c) for c in OTHER_NAMES]
+            if "Overture" not in (o.get("parcel", {}).get("source") or ""):
+                names.append(o.get("parcel", {}).get("name"))
+            hidden_keys |= {("name", k) for n in names if (k := _name_key(_s(n)))}
+            hidden_keys |= {("dom", k) for k in [business_domain(public_website(row.get("osm_website")))] if k}  # even with no site name
+    hidden_names = {k for kind_, k in hidden_keys if kind_ == "name"}
+
+    def entry_hidden(e: dict, *names) -> bool:  # a permit, site or same-parcel entry named like a hidden listing, or on its site
+        dom = e.get("domain")
+        return (any(_name_key(n) in hidden_names for n in names if n) or suppressed(dom) or under(dom, person_doms)
+                or ("dom", business_domain(e.get("website"))) in hidden_keys)
 
     def hidden(o: dict) -> bool:
         return suppressed(o.get("domain")) or under(o.get("domain"), person_doms) or bool(_listing_keys(o) & hidden_keys)
@@ -387,6 +420,27 @@ def build_details(roofs: pd.DataFrame, worksheet: pd.DataFrame | None = None, oc
         d["occupants"] = [shown(o) for o in listing if o]
         d["next_door"] = [shown(o) for o in nextdoor if o]
         d["companies"] = companies_here
+        if w is not None:  # upstream's other public sources and best guess (optional worksheet columns)
+            other = _other_sources(w)
+            known = _compact({"name": _s(w.get("known_company")), "source": _s(w.get("known_company_source"))})
+            known = known if "name" in known and not d["occupants"] else {}
+            if kind:  # an objecting property: nothing from these registers, which may name the person
+                other, known = ({"hidden": True} if other else {}), ({"hidden": True} if known else {})
+            else:
+                gone = {key for key, e in other.items() if entry_hidden(e, e.get("name"), e.get("operator"))}
+                # the best guess is one of these names: it goes when the entry it came from goes, or when it carries any name
+                # hidden on this roof (permit holder, site name or operator, same-parcel name, hidden listing)
+                src = (known.get("source") or "")
+                came_from = ("parcel" if src.endswith("(same parcel)") else "aia" if src.startswith("AIA") else
+                             "osm" if src.startswith("OSM") else None)
+                gone_names = {_name_key(n) for key in gone for n in (other[key].get("name"), other[key].get("operator")) if n}
+                gone_names |= {_name_key(o.get("name")) for o in listing + nextdoor if o.get("name") and hidden(o)}
+                if known and (came_from in gone or _name_key(known["name"]) in gone_names or entry_hidden(known, known["name"])):
+                    known = {"hidden": True}
+                for key in gone:
+                    e = other[key]
+                    other[key] = _compact({"hidden": True, "type": e.get("type"), "kind": e.get("kind"), "dist_m": e.get("dist_m")})
+            d.update(other=other, known=known)
         if kind:
             d.update(do_not_contact=True, dnc_parcel=kind == "parcel", dnc_orphan=kind == "orphan")
         if w is not None:
@@ -519,6 +573,12 @@ JS = r"""
       o.confidence != null ? "confidence " + o.confidence.toFixed(2) : null].filter(Boolean).join(" \u00b7 ")));
   }
 
+  function otherNames(d) {  // names from the other public sources (hidden entries have none)
+    var ot = d.other || {};
+    return [(d.known || {}).name, (ot.aia || {}).name, (ot.osm || {}).name, (ot.osm || {}).operator, (ot.parcel || {}).name]
+      .filter(Boolean);
+  }
+
   function render(id, d) {
     body.textContent = "";
     if (d.do_not_contact) add(body, add(el("div", "rw-dnc", "Do not contact"),
@@ -582,9 +642,11 @@ JS = r"""
     }
 
     // C. businesses at the building, then the ones listed at a neighbouring building
-    var occ = d.occupants || [], nd = d.next_door || [];
-    if (occ.length || nd.length) {
+    var occ = d.occupants || [], nd = d.next_door || [], kn = d.known;
+    if (occ.length || nd.length || kn) {
       s = section("Businesses at this building (public listings)");
+      if (kn) row(s, "Best guess for the company on site", kn.hidden ? "Hidden: do not contact" :
+        kn.name + (kn.source ? " (" + kn.source + ")" : ""));
       add(s, occ.length ? el("p", "rw-note", "Often the tenant, not the owner.") : el("p", "rw-muted", "No business is listed at this building."));
       occ.forEach(function (o) { business(s, o, false); });
       if (nd.length) {
@@ -592,6 +654,28 @@ JS = r"""
           el("p", "rw-note", "Listed at a neighbouring building: may be the same site or an unrelated neighbour."));
         nd.forEach(function (o) { business(s, o, true); });
       }
+    }
+
+    // C2. other public sources: environmental permit holder, named OpenStreetMap site, business on the same parcel
+    var ot = d.other;
+    if (ot) {
+      s = section("Other public sources");
+      if (ot.hidden) add(s, el("p", "rw-muted", "Hidden: do not contact"));
+      if (ot.aia) {
+        var a = ot.aia, it = add(s, el("div", "rw-item")).lastChild;
+        add(it, el("div", null, "Environmental permit (AIA): " + (a.hidden ? "hidden: do not contact" : [a.name, a.type, a.address,
+          a.dist_m >= 1 ? "about " + a.dist_m + " m away" : null].filter(Boolean).join(", "))),
+          el("div", "rw-muted", "source: Regione Lombardia AIA permits"));
+      }
+      if (ot.osm) {
+        var m = ot.osm, it2 = add(s, el("div", "rw-item")).lastChild;
+        add(it2, el("div", null, "OpenStreetMap: " + (m.hidden ? "hidden: do not contact" : [m.name, m.operator ? "operated by " + m.operator : null,
+          m.kind, m.dist_m >= 1 ? "about " + m.dist_m + " m away" : null].filter(Boolean).join(", "))));
+        if (m.website && !m.hidden) row(it2, "Website", link(m.website, m.domain || m.website));
+        add(it2, el("div", "rw-muted", "source: OpenStreetMap"));
+      }
+      if (ot.parcel) add(s, el("div", "rw-item", "On the same parcel: " + (ot.parcel.hidden ? "hidden: do not contact" :
+        ot.parcel.name + (ot.parcel.source ? " (" + ot.parcel.source + ")" : ""))));
     }
 
     // D. company public records
@@ -632,11 +716,11 @@ JS = r"""
     // F. look-ups, one at a time
     s = section("Look up (one at a time)");
     var ul = add(s, el("ul")).lastChild, names = {};
-    occ.concat(nd).forEach(function (b, i) {
+    occ.concat(nd, otherNames(d).map(function (n) { return {name: n}; })).forEach(function (b, i) {
       if (!b.name || names[b.name]) return;
       names[b.name] = 1;
       add(ul, add(el("li"), link(CFG.links.search + q(b.name + " " + (d.comune || "")),
-        "Web search: " + b.name + ", " + (d.comune || "") + (i >= occ.length ? " (next door)" : ""))));
+        "Web search: " + b.name + ", " + (d.comune || "") + (i >= occ.length && i < occ.length + nd.length ? " (next door)" : ""))));
     });
     add(ul, add(el("li"), link(CFG.links.visura, "Cadastral lookup (visura): Agenzia delle Entrate")));
     add(ul, add(el("li"), link(CFG.links.register, "Italian business register: registroimprese.it")));
@@ -710,6 +794,7 @@ JS = r"""
         (d.occupants || []).forEach(function (o) { put(o.name, false); });
         (d.next_door || []).forEach(function (o) { put(o.name, true); });
         (d.companies || []).forEach(function (c) { put(c.legal_name, !!c.next_door); });
+        otherNames(d).forEach(function (n) { put(n, false); });
         put(d.address, false); put(p.ref, false); put(p.ref ? [p.code, p.foglio, p.particella].join(" ") : null, false);
         if (f.length) index.push({id: id, f: f, own: f.filter(function (x) { return !x.nd; }).map(function (x) { return x.t; }).join(" | "),
                                   all: f.map(function (x) { return x.t; }).join(" | ")});

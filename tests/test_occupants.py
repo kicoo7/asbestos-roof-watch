@@ -576,3 +576,92 @@ def test_drop_suppressed_compares_names_after_the_contact_scrub():  # review4 mi
     pl = places([p("site", 5, 5, name="Rossi Mario Idraulica", website="https://rossimario.example"),
                  p("tel", 6, 6, name="Rossi Mario Idraulica Tel. 333 1234567"), p("bar", 7, 7, name="Bar Luna")])
     assert occ.drop_suppressed(pl, frozenset({"rossimario.example"}))["id"].tolist() == ["bar"]
+
+
+# --- merge with f7ead55: company on site (AIA permit holders, OSM named features, same parcel), visura queue ----------
+
+def test_known_company_precedence_and_source():
+    df = pd.DataFrame({"business_name": ["Acme Srl", None, "", None, None, None],
+                       "aia_company": ["Permit Spa", "Permit Spa", None, None, None, None],
+                       "osm_operator": ["Op", "Op", "Op Coop", "", None, None],
+                       "osm_name": ["Cascina", "Cascina", "Cascina", "Cascina Bassa", None, None],
+                       "parcel_company": ["P", None, None, None, "Bar Uno", None],
+                       "parcel_company_source": ["x", None, None, None, "Overture places (same parcel)", None]})
+    company, source = occ.known_company(df)
+    assert [c if isinstance(c, str) else None for c in company] == ["Acme Srl", "Permit Spa", "Op Coop", "Cascina Bassa", "Bar Uno", None]
+    assert source.tolist() == ["Overture places", "AIA permit", "OSM operator", "OSM name", "Overture places (same parcel)", ""]
+
+
+def test_parcel_companies_same_property_first_source_wins():
+    parcels = gpd.GeoDataFrame({"ref": ["P1", "P2", "P3"]}, geometry=[box(0, 0, 100, 100), box(200, 0, 300, 100), box(400, 0, 500, 100)],
+                               crs=CRS)
+    over = gpd.GeoDataFrame({"name": ["Bar Uno Tel 333 1234567"]}, geometry=[Point(50, 50)], crs=CRS).to_crs(4326)  # other CRS
+    aia = gpd.GeoDataFrame({"name": ["Allevamento Bianchi", "Ditta Due", "Fuori"]}, geometry=[Point(60, 60), Point(250, 50), Point(450, 50)],
+                           crs=CRS)
+    out = occ.parcel_companies([("Overture places (same parcel)", over), ("AIA permit (same parcel)", aia)], parcels, ["P1", "P2"])
+    assert out.values.tolist() == [["P1", "Bar Uno", "Overture places (same parcel)"], ["P2", "Ditta Due", "AIA permit (same parcel)"]]
+
+
+def test_prepare_aia_and_osm_scrub_names_and_filter_websites():
+    aia = occ.prepare_aia(gpd.GeoDataFrame({"RAGIONE_SO": ["Azienda Agricola Rossi Mario tel. 030 1234567", "  "], "TIPOLOGIA_": ["ALL", "IND"],
+                                            "INDIRIZZO": ["VIA ROMA", "VIA PO"], "NUM_CIVICO": ["5", None], "CAP": ["25025", None],
+                                            "COMUNE": ["MANERBIO", "LENO"]}, geometry=[Point(0, 0), Point(1, 1)], crs=CRS))
+    assert aia.drop(columns="geometry").values.tolist() == [["Azienda Agricola Rossi Mario", "livestock farm", "Via Roma 5, 25025 Manerbio"]]
+    osm = occ.prepare_osm(gpd.GeoDataFrame({"osm_name": ["Cascina Alta", "Officina", None], "osm_operator": [None, "Rossi info@rossi.example", None],
+                                            "osm_kind": ["farmyard", "industrial", "farmyard"],
+                                            "osm_website": ["https://wa.me/393331234567", "http://rossi.example/?tel=0301234567", "x.example"]},
+                                           geometry=[Point(0, 0), Point(1, 1), Point(2, 2)], crs=CRS))
+    assert [[v if isinstance(v, str) else None for v in row] for row in osm.drop(columns="geometry").values.tolist()] == [
+        ["Cascina Alta", None, "farmyard", None],
+        ["Officina", "Rossi", "industrial", "http://rossi.example/"]]
+
+
+def test_suppression_reaches_permit_holders_and_osm_sites():  # a farm run by one person: same rule as a listing
+    dom = frozenset({"rossimario.example"})
+    pl = places([p("site", 5, 5, name="Rossi Mario Idraulica", website="https://rossimario.example"), p("bar", 6, 6, name="Bar Luna"),
+                 p("cascina", 7, 7, name="Cascina Verdi")])
+    osm = occ.prepare_osm(gpd.GeoDataFrame({"osm_name": ["Cascina Verdi", "Cascina Gialla"], "osm_operator": [None, None],
+                                            "osm_kind": ["farmyard", "farmyard"],
+                                            "osm_website": ["https://shop.rossimario.example", "https://gialla.example"]},
+                                           geometry=[Point(0, 0), Point(1, 1)], crs=CRS))
+    aia = occ.prepare_aia(gpd.GeoDataFrame({"RAGIONE_SO": ["ROSSI MARIO IDRAULICA", "Allevamento Neri"], "TIPOLOGIA_": ["IND", "ALL"]},
+                                           geometry=[Point(0, 0), Point(1, 1)], crs=CRS))
+    names = occ.suppressed_names(pl, dom) | occ.suppressed_names(osm, dom, "osm_website", ("osm_name", "osm_operator"))
+    assert sorted(occ.drop_suppressed(pl, dom, names=names)["id"]) == ["bar"]                      # 'Cascina Verdi' too: its OSM site is suppressed
+    assert occ.drop_suppressed(osm, dom, "osm_website", ("osm_name", "osm_operator"), names=names)["osm_name"].tolist() == ["Cascina Gialla"]
+    assert occ.drop_suppressed(aia, dom, name_col="aia_company", names=names)["aia_company"].tolist() == ["Allevamento Neri"]
+    assert occ.drop_suppressed(aia, frozenset(), name_col="aia_company") is aia                    # nothing suppressed: unchanged
+
+
+def test_nearest_point_within_distance_ties_to_first():
+    r = roofs((0, 0, 20, 20), (500, 0, 520, 20))
+    pts = gpd.GeoDataFrame({"aia_company": ["Prima", "Seconda", "Lontana"]}, geometry=[Point(30, 10), Point(10, 30), Point(900, 0)], crs=CRS)
+    assert occ.nearest_point(r, pts, 200, "aia_dist_m").values.tolist() == [[1, "Prima", 10.0]]
+
+
+def queue_sheet(rows):
+    """(priority, roof_id, parcel_ref, known_company, owner_from_visura, do_not_contact) -> worksheet as read back (text)."""
+    return pd.DataFrame([{"priority": str(pr), "roof_id": str(rid), "comune": "Leno", "area_m2": str(1000 - pr), "model_score": "0.8",
+                          "comune_code": "E526", "foglio": "1", "particella": "1", "parcel_ref": ref, "address": "", "street_view": "sv",
+                          "known_company": kc, "owner_from_visura": ow, "do_not_contact": dnc} for pr, rid, ref, kc, ow, dnc in rows])
+
+
+def test_visura_queue_one_row_per_open_parcel():
+    ws = queue_sheet([(1, 11, "A", "", "", ""), (2, 12, "B", "Acme", "", ""), (3, 13, "A", "", "", ""), (4, 14, "B", "", "", ""),
+                      (5, 15, "C", "", "Rossi Mario", ""), (6, 16, "D", "", "", ""), (7, 17, "D", "", "", "yes"),
+                      (8, 18, "E", "", "", "no"), (9, 19, "", "", "", ""), (10, 20, "F", "", "", "")])
+    q = occ.visura_queue(ws)
+    assert q["roof_id"].tolist() == ["11", "18", "20"]               # B: company found; C: owner typed; D: objection; '' : no parcel
+    assert list(q.columns) == occ.QUEUE_COLS and "owner_from_visura" not in q
+    assert occ.visura_queue(ws, n=2)["parcel_ref"].tolist() == ["A", "E"]
+
+
+def test_save_visura_queue_never_overwrites_typed_values_silently(tmp_path):
+    path = tmp_path / "visura_queue.csv"
+    path.write_text("priority;parcel_ref;owner_from_visura;registered_office\n1;A;Rossi Mario;\n")   # an older queue, typed into
+    raw = path.read_bytes()
+    q = occ.visura_queue(queue_sheet([(1, 11, "A", "", "", "")]))
+    backup = occ.save_visura_queue(q, path, now=datetime(2026, 11, 14, 9, 30, 0))
+    assert backup.name == "visura_queue.backup-20261114-093000.csv" and backup.read_bytes() == raw
+    assert occ.read_table(path).columns.tolist() == occ.QUEUE_COLS
+    assert occ.save_visura_queue(q, path) is None and len(list(tmp_path.glob("*.backup-*"))) == 1  # nothing typed: no backup
