@@ -20,6 +20,34 @@ What the worksheet does not give you:
 
 The business at a building is often a tenant, not the owner. It is still usually the right first contact for an industrial roof.
 
+## From parcel to a contact: four routes
+
+**1. Open registries that name the company at a location (automatic, in the worksheet).** `known_company` takes the first available of:
+
+| Source | Rule |
+|---|---|
+| Overture places | business within 30 m of the roof |
+| AIA environmental permits (Regione Lombardia) | industry, intensive livestock or waste plant within 200 m |
+| OpenStreetMap | named farmyard, industrial site or operator within 150 m |
+| Any of the above | anywhere inside the roof's cadastral parcel |
+
+Coverage in the Brescia pilot: 48% of the 1,258 candidate roofs.
+
+**2. Owner from the cadastre (manual).** `outputs/visura_queue.csv` lists the parcels of the 50 largest candidate roofs with no company found.
+- For each, request a *visura per immobile* (town code + foglio + particella) on the Agenzia delle Entrate site (SPID).
+- If the owner is a company, look up its registered office and VAT number in the business register (registroimprese.it). The first search is free; the full company report costs a few euros.
+- If the owner is a private person, do not build a list. Contact them only by an individual letter with the art. 14 notice.
+
+**3. Manual identification.** `street_view` opens Google Street View at the roof: company signs on gates and facades are often readable. `company_search` runs a web search for the company found, to reach its own website and published business contacts.
+
+**4. Channels that already have a relationship with the owners.** No personal data is needed on your side for any of these:
+- **Municipalities:** an asbestos awareness campaign to owners. Councils have a public-interest reason and their own data, and you can offer the map.
+- **Farmers' associations:** Coldiretti, Confagricoltura and CIA Brescia. Their agricultural service centres (CAA) manage members' farm records and can inform members about removal and Agrisolare.
+- **Business associations:** Confindustria Brescia, Confartigianato, CNA.
+- **Inbound:** adverts geo-targeted to the industrial zones around candidate roofs, unaddressed leaflets in those zones, and a landing page ("Is my roof asbestos? Which grants apply?"). Owners who reply have given consent.
+
+Not acceptable: matching owners' tax codes to phone numbers, buying phone or email lists, or scraping personal contact details. That is what the Garante sanctioned in the Realmaps case.
+
 ## Rules of thumb
 
 1. **Contact businesses, not private individuals, where you can.** A private person's name taken from a cadastral record is personal data. Building lists of owners for marketing is what the Garante sanctioned in the Realmaps case (data matched with phone numbers and sold to estate agents; agencies fined for telemarketing without consent).

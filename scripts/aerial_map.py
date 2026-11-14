@@ -22,7 +22,7 @@ roofs = roofs.merge(pd.read_parquet(OUT / "pilot_pv_scores.parquet"), on="roof_i
 ws_path = OUT / "contact_worksheet.csv"
 ws = pd.read_csv(ws_path) if ws_path.exists() else pd.DataFrame(columns=["roof_id"])
 keep_ws = [c for c in ["roof_id", "parcel_ref", "comune_code", "foglio", "particella", "address", "business_name",
-                       "business_category", "business_website"] if c in ws.columns]
+                       "business_category", "business_website", "known_company", "known_company_source", "street_view"] if c in ws.columns]
 roofs = roofs.merge(ws[keep_ws], on="roof_id", how="left")
 roofs = roofs.to_crs(4326)
 roofs["p_raw"] = roofs["p"]  # threshold on the unrounded score
@@ -32,7 +32,8 @@ roofs["area_m2"] = roofs["area_m2"].round(0)
 roofs["label_txt"] = roofs["label"].map({"ac": "mapped AC (>=50% of roof)", "ac_part": "AC on part of roof", "none": "not mapped"})
 pt = roofs.representative_point()
 roofs["chip"] = [f'<img src="../data/processed/chips/{r}.jpg" width="180" height="180" style="background:#000">' for r in roofs["roof_id"]]
-roofs["links"] = [f'<a href="https://www.google.com/maps/@{p.y:.6f},{p.x:.6f},120m/data=!3m1!1e3" target="_blank">Google satellite</a>'
+roofs["links"] = [f'<a href="https://www.google.com/maps/@{p.y:.6f},{p.x:.6f},120m/data=!3m1!1e3" target="_blank">Google satellite</a> · '
+                  f'<a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={p.y:.6f},{p.x:.6f}" target="_blank">Street View</a>'
                   for p in pt]
 roofs = roofs.fillna({c: "" for c in keep_ws if c != "roof_id"})
 
@@ -43,11 +44,13 @@ roofs.loc[(roofs.label == "none") & (roofs.p_raw >= THRESH), "group"] = "suspect
 NAMES = {"agree": "Result: on ARPA map, model agrees", "mapped_not_seen": "Result: on ARPA map, model does not see AC (replaced?)",
          "suspected_new": "Result: not on ARPA map, model suspects AC"}
 COLORS = {"agree": "#d7191c", "mapped_not_seen": "#2b83ba", "suspected_new": "#fdae61"}
-POP = ["chip", "label_txt", "p", "p_pv", "area_m2", "comune", "parcel_ref", "address", "business_name", "business_website", "links"]
+POP = ["chip", "label_txt", "p", "p_pv", "area_m2", "comune", "parcel_ref", "address", "known_company", "known_company_source",
+       "business_website", "links"]
 POP = [c for c in POP if c in roofs.columns]
 POP_ALIAS = {"chip": "What the model saw", "label_txt": "ARPA label", "p": "Asbestos score", "p_pv": "Solar panels score",
              "area_m2": "Roof m2", "comune": "Municipality", "parcel_ref": "Cadastral parcel", "address": "Address",
-             "business_name": "Business at building", "business_website": "Website", "links": "Check"}
+             "business_name": "Business at building", "known_company": "Company on site (best guess)",
+             "known_company_source": "Company source", "business_website": "Website", "links": "Check"}
 
 c = roofs.union_all().centroid
 m = folium.Map(location=[c.y, c.x], zoom_start=14, tiles=None, max_zoom=21)
