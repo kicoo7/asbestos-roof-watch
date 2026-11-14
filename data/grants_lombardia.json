@@ -1,0 +1,66 @@
+{
+  "region": "Lombardia",
+  "checked_on": "2026-11-14",
+  "note": "Status is computed from the dates on the day the map is built. Several sources are press or commercial articles whose dates disagree: confirm on the official site before relying on a deadline. Update this file when a new call is announced.",
+  "grants": [
+    {
+      "id": "bonus_ristrutturazioni_2026",
+      "name": "Bonus Ristrutturazioni 2026 (home renovation tax deduction)",
+      "for": ["home"],
+      "what": "Tax deduction of 50% for a primary home (36% for others) on asbestos removal, transport and disposal, up to 96,000 euros of spending per home. No credit transfer or discount on the invoice.",
+      "opens": null,
+      "closes": "2026-12-31",
+      "close_meaning": "spending must be paid by this date; the rates fall in 2027",
+      "next_call": "Rates for 2027 set by the next budget law",
+      "sources": ["https://ediltecnico.it/bonus-edilizi-2026-legge-di-bilancio/",
+                  "https://www.money.it/bonus-rimozione-amianto-2026-affrettarsi-rimborso-spese-bonifica"]
+    },
+    {
+      "id": "inail_isi_2025_asse3",
+      "name": "INAIL Bando ISI 2025, Axis 3 (asbestos removal)",
+      "for": ["company", "farm"],
+      "what": "Non-repayable grant of 65% of costs, up to 130,000 euros per company, for removing asbestos-containing materials; an extra up to 20,000 euros at 80% for added work such as solar panels.",
+      "opens": "2026-04-13",
+      "closes": "2026-05-28",
+      "close_meaning": "applications closed; completion for admitted applicants ended 26 October 2026",
+      "next_call": "ISI 2026 not announced yet: watch inail.it",
+      "sources": ["https://www.anacitaliaservizi.com/news/norme-e-decreti/bonifica-amianto/",
+                  "https://sni.unioncamere.it/notizie/bando-isi-inail-20252026"]
+    },
+    {
+      "id": "parco_agrisolare_2026",
+      "name": "Parco Agrisolare 2026 (PNRR, run by GSE)",
+      "for": ["farm"],
+      "what": "Up to 80% non-repayable for solar panels on farm buildings; asbestos removal is an eligible cost together with the solar installation. Works within 18 months of the grant.",
+      "opens": "2026-03-10",
+      "closes": "2026-04-09",
+      "close_meaning": "applications closed",
+      "next_call": "No new window announced: watch gse.it and masaf.gov.it",
+      "sources": ["https://www.infobuildenergia.it/pnrr-800-milioni-nuovo-bando-agrisolare/",
+                  "https://confagricolturafvg.it/agrisolare-le-novita-del-bando-facility-2026/"]
+    },
+    {
+      "id": "lombardia_enti_locali_2026",
+      "name": "Regione Lombardia 2026, asbestos removal from public buildings",
+      "for": ["public body"],
+      "what": "Local councils, unions of councils, mountain communities, provinces and the Metropolitan City of Milan only: up to 100% of eligible costs, up to 350,000 euros per project, 11.5 million euros in total.",
+      "opens": "2026-09-08",
+      "closes": "2026-11-10",
+      "close_meaning": "applications closed",
+      "next_call": "Not announced",
+      "sources": ["https://www.bandi.regione.lombardia.it/servizi/servizio/bandi/dettaglio/ambiente-territorio/gestione-rifiuti/bando-l-assegnazione-contributi-enti-locali-rimozione-manufatti-contenenti-amianto-edifici-pubblici-loro-sostituzione-ed-2026-RLT12026052304"]
+    },
+    {
+      "id": "comune",
+      "name": "Municipal grants",
+      "for": ["home", "company", "farm", "public body", "unknown"],
+      "what": "Some councils fund asbestos removal from their own budget. Ask the council's environment office.",
+      "opens": null,
+      "closes": null,
+      "close_meaning": "",
+      "next_call": "Varies by council",
+      "sources": []
+    }
+  ],
+  "obligations": "In Lombardy the owner of a building with asbestos-cement must report it to the local health authority (ATS, form NA/1) and have its condition assessed with the Degradation Index (d.d.g. Sanita 13237/2008); the index decides whether removal is due within 12 months, later, or after periodic re-checks. Removal must be done by a company registered with the Albo Gestori Ambientali (category 10A or 10B)."
+}

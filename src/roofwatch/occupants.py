@@ -23,7 +23,7 @@ from roofwatch.urls import normalize_domain, public_website
 WORKSHEET_MANUAL = ["owner_from_visura", "owner_type", "contact_method", "contact_date", "outcome", "do_not_contact", "notes"]
 # every column scripts/contact_worksheet.py writes or ever wrote. Never remove a name: a retired generated column left in an
 # old worksheet must not pass for one the user added (its stale values would be carried, backed up and orphaned forever)
-WORKSHEET_GENERATED = ("priority", "roof_id", "status", "comune", "provincia", "area_m2", "model_score", "solar_panels_score", "comune_code",
+WORKSHEET_GENERATED = ("priority", "roof_id", "status", "comune", "provincia", "likely_owner_type", "owner_type_evidence", "grant_fit", "area_m2", "model_score", "solar_panels_score", "comune_code",
                        "foglio", "particella", "parcel_ref", "parcel_share", "other_parcels", "address", "address_dist_m",
                        "business_name", "business_category", "business_website", "business_address", "business_dist_m",
                        "n_businesses", "n_nearby_businesses", "nearby_business_name", "nearby_business_website", "aia_company",

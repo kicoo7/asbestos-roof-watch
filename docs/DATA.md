@@ -105,3 +105,11 @@ Checked on 14 Nov 2026. `scripts/enrich_companies.py` -> `outputs/company_regist
 | Pilot run | 1,871 domains: VAT number found for 867, of which VIES confirmed 726 (553 companies, 173 sole traders or unknown form) and 141 are not in VIES. 509 sites could not be read (about 270 no longer exist) and 445 show no VAT number. 6 source pages were read without certificate verification (`tls_unverified`) |
 
 `vies_valid` false does not mean a fake number: an Italian VAT number is in VIES only when its holder registered for intra-EU trade.
+
+## Grants (Lombardy)
+
+`data/grants_lombardia.json` lists the asbestos removal grants for the region: who each is for (home, company, farm, public body), what it pays, opening and closing dates, the next expected call and sources. Checked on 14 Nov 2026; several sources are press articles whose dates disagree, so confirm deadlines on the official sites (INAIL, GSE, Regione Lombardia, Agenzia delle Entrate).
+
+`src/roofwatch/grants.py` computes each scheme's status (open, upcoming, closed) on the day the map or worksheet is built. It also makes a best guess at each roof's owner type from public evidence: livestock permit or named farm site, a farm; industrial permit, business or company record, a company; public body record; a small roof with no business, a home. That guess picks the schemes shown in the map panel and in the worksheet columns `likely_owner_type`, `owner_type_evidence` and `grant_fit`.
+
+**When a new call opens,** add or edit its entry in the JSON (dates, what, sources, `checked_on`), then run `scripts/contact_worksheet.py` and `scripts/aerial_map.py`.

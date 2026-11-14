@@ -24,7 +24,10 @@ import shapely
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from datetime import date
+
 from roofwatch.cadastre import assign_parcels, fetch_parcels
+from roofwatch.grants import fit_summary, grant_fit, likely_owner_type, load_grants
 from roofwatch.occupants import (WORKSHEET_MANUAL as MANUAL, assign_places, drop_suppressed, known_company, load_suppressed_domains,
                                  nearest_address, nearest_point, parcel_companies, prepare_aia, prepare_osm, read_orphans, read_worksheet,
                                  province_from_istat, save_visura_queue, save_worksheet, suppressed_names, visura_queue, write_csv)
@@ -145,7 +148,18 @@ for c in MANUAL:
     r[c] = ""
 r = r.sort_values(["area_m2", "roof_id"], ascending=[False, True]).reset_index(drop=True)
 r.insert(0, "priority", range(1, len(r) + 1))
-cols = ["priority", "roof_id", "status", "comune", "provincia", "area_m2", "p", "solar_panels_score", "comune_code", "foglio", "particella", "parcel_ref", "parcel_share",
+# grants for the region: likely owner type from public evidence -> schemes that fit and their status today
+_grants_path = ROOT / "data/grants_lombardia.json"
+if _grants_path.exists():
+    _grants, _today = load_grants(_grants_path), date.today()
+    _ot = [likely_owner_type(row) for row in r.to_dict("records")]
+    r["likely_owner_type"] = [t for t, _ in _ot]
+    r["owner_type_evidence"] = [w for _, w in _ot]
+    r["grant_fit"] = [fit_summary(grant_fit(t, _grants, _today)) for t, _ in _ot]
+else:
+    r["likely_owner_type"] = r["owner_type_evidence"] = r["grant_fit"] = ""
+
+cols = ["priority", "roof_id", "status", "comune", "provincia", "likely_owner_type", "owner_type_evidence", "grant_fit", "area_m2", "p", "solar_panels_score", "comune_code", "foglio", "particella", "parcel_ref", "parcel_share",
         "other_parcels", "address", "address_dist_m", "business_name", "business_category", "business_website", "business_address",
         "business_dist_m", "n_businesses", "n_nearby_businesses", "nearby_business_name", "nearby_business_website", "aia_company",
         "aia_type", "aia_address", "aia_dist_m", "osm_name", "osm_operator", "osm_kind", "osm_website", "osm_dist_m", "known_company",

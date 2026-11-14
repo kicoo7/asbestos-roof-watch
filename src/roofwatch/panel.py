@@ -703,6 +703,28 @@ JS = r"""
       });
     }
 
+    // D2. grants for the region (data/grants_lombardia.json; status computed when the map was built)
+    var gr = d.grants;
+    if (gr && gr.fit && gr.fit.length) {
+      s = section("Grants" + (gr.region ? " (" + gr.region + ")" : ""));
+      row(s, "Likely owner", gr.owner_type === "unknown" ? "not known: every scheme listed" :
+        gr.owner_type + (gr.why ? " (" + gr.why + ")" : ""));
+      gr.fit.forEach(function (x) {
+        var it = add(s, el("div", "rw-item")).lastChild;
+        var tag = {open: "OPEN", upcoming: "UPCOMING", closed: "Closed", ask: "Ask"}[x.status] || x.status;
+        add(it, add(el("div", "rw-name"), el("span", "rw-tag", tag), x.name));
+        add(it, el("div", null, x.what));
+        if (x.status === "open" && x.closes) add(it, el("div", null, "Until " + x.closes + (x.close_meaning ? ": " + x.close_meaning : "")));
+        if (x.status === "upcoming" && x.opens) add(it, el("div", null, "Opens " + x.opens));
+        if (x.status === "closed") add(it, el("div", "rw-muted", "Closed " + (x.closes || "") + (x.close_meaning ? ": " + x.close_meaning : "")));
+        if (x.next_call && x.status !== "open") add(it, el("div", "rw-muted", "Next: " + x.next_call));
+        if (x.source) add(it, add(el("div", "rw-muted"), link(x.source, "Source")));
+      });
+      if (gr.obligations) add(s, el("p", "rw-note", gr.obligations));
+      add(s, el("p", "rw-muted", "Status as of " + (gr.built_on || "") + "; grant data checked on " + (gr.checked_on || "") +
+        ". Owner type is a guess from public evidence; each call sets its own eligibility rules."));
+    }
+
     // E. owner, from the user's own visura
     var o = d.owner || {};
     s = section("Owner (from your own visura)");
