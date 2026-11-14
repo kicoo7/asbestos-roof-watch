@@ -83,15 +83,26 @@ def fetch_parcels(bbox_lonlat, page: int = 1000, retries: int = 4) -> gpd.GeoDat
     return gpd.GeoDataFrame(out, geometry="geometry", crs="EPSG:6706").drop_duplicates("ref")
 
 
-def assign_parcels(roofs: gpd.GeoDataFrame, parcels: gpd.GeoDataFrame, min_share: float = 0.2) -> pd.DataFrame:
-    """Per roof: the parcel covering most of it (`parcel_ref`, `parcel_share`) and other parcels covering >= min_share."""
+PSEUDO_PARCELS = ("ACQUA", "STRADA")  # watercourses and roads: no owner, nothing to look up
+
+
+def assign_parcels(roofs: gpd.GeoDataFrame, parcels: gpd.GeoDataFrame, min_share: float = 0.2,
+                   min_main_share: float = 0.05) -> pd.DataFrame:
+    """Per roof: the parcel covering most of it (`parcel_ref`, `parcel_share`) and other parcels covering >= min_share.
+
+    Road and water pseudo-parcels are ignored, and a roof whose best real parcel covers less than min_main_share of it
+    gets no parcel (the right one is missing from the data; a guess would send the owner lookup to the wrong property).
+    Lettered parcels (A, B...: churches and other public buildings) are real parcels and kept.
+    """
     parcels = parcels.to_crs(roofs.crs)
+    part = parcels["ref"].astype(str).str.split(".").str[-1]
+    parcels = parcels[~part.str.upper().str.startswith(PSEUDO_PARCELS)]
     ov = gpd.overlay(roofs[["roof_id", "geometry"]], parcels[["ref", "geometry"]], how="intersection", keep_geom_type=True)
     ov["share"] = ov.area / ov["roof_id"].map(roofs.set_index("roof_id").area)
     rows = []
     for rid in roofs["roof_id"]:
         g = ov[ov["roof_id"] == rid].sort_values("share", ascending=False)
-        if g.empty:
+        if g.empty or g.iloc[0]["share"] < min_main_share:
             rows.append({"roof_id": rid, "parcel_ref": None, "parcel_share": 0.0, "other_parcels": ""})
             continue
         others = g.iloc[1:][g.iloc[1:]["share"] >= min_share]["ref"]

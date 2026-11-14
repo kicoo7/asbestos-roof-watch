@@ -40,3 +40,18 @@ def test_assign_parcels_main_and_secondary():
     assert abs(out.loc[1, "parcel_share"] - 0.7) < 1e-9
     assert out.loc[1, "other_parcels"] == "A_000100.2"      # 30% share; parcel .3 (5%) ignored
     assert pd.isna(out.loc[2, "parcel_ref"])
+
+
+def test_assign_parcels_skips_road_and_water_pseudo_parcels_and_tiny_overlaps():
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from roofwatch.cadastre import assign_parcels
+
+    roofs = gpd.GeoDataFrame({"roof_id": [1, 2]}, geometry=[box(0, 0, 10, 10), box(100, 0, 110, 10)], crs=32632)
+    parcels = gpd.GeoDataFrame({"ref": ["A_000100.ACQUA021", "A_000100.5", "A_000100.STRADA003", "A_000100.A"]},
+                               geometry=[box(-5, -5, 8, 15), box(8, -5, 20, 15), box(100, 0, 109.9, 10), box(109.9, 0, 120, 10)],
+                               crs=32632)
+    out = assign_parcels(roofs, parcels).set_index("roof_id")
+    assert out.loc[1, "parcel_ref"] == "A_000100.5"          # the water parcel covers more, but has no owner
+    assert pd.isna(out.loc[2, "parcel_ref"])                  # only 1% left on a real parcel: no guess

@@ -23,7 +23,7 @@ from roofwatch.urls import normalize_domain, public_website
 WORKSHEET_MANUAL = ["owner_from_visura", "owner_type", "contact_method", "contact_date", "outcome", "do_not_contact", "notes"]
 # every column scripts/contact_worksheet.py writes or ever wrote. Never remove a name: a retired generated column left in an
 # old worksheet must not pass for one the user added (its stale values would be carried, backed up and orphaned forever)
-WORKSHEET_GENERATED = ("priority", "roof_id", "status", "comune", "area_m2", "model_score", "solar_panels_score", "comune_code",
+WORKSHEET_GENERATED = ("priority", "roof_id", "status", "comune", "provincia", "area_m2", "model_score", "solar_panels_score", "comune_code",
                        "foglio", "particella", "parcel_ref", "parcel_share", "other_parcels", "address", "address_dist_m",
                        "business_name", "business_category", "business_website", "business_address", "business_dist_m",
                        "n_businesses", "n_nearby_businesses", "nearby_business_name", "nearby_business_website", "aia_company",
@@ -545,8 +545,20 @@ AIA_TYPES = {"ALL": "livestock farm", "IND": "industrial plant", "RIF": "waste p
 # best guess at the company on site, by source reliability (the business at the building is the rank-1 at_building listing)
 COMPANY_SOURCES = (("business_name", "Overture places"), ("aia_company", "AIA permit"), ("osm_operator", "OSM operator"),
                    ("osm_name", "OSM name"))
-QUEUE_COLS = ["priority", "roof_id", "comune", "area_m2", "model_score", "comune_code", "foglio", "particella", "parcel_ref", "address",
-              "street_view"]
+# the Agenzia delle Entrate visura form, field by field: Provincia, Comune, Catasto, Sezione, Foglio, Particella, Subalterno
+ADE_COLS = ["ade_provincia", "ade_comune", "ade_catasto", "ade_sezione", "ade_foglio", "ade_particella", "ade_subalterno"]
+QUEUE_COLS = ["priority", *ADE_COLS, "roof_id", "comune", "area_m2", "model_score", "comune_code", "foglio", "particella", "parcel_ref",
+              "address", "street_view"]
+_PROVINCES = {12: "Varese", 13: "Como", 14: "Sondrio", 15: "Milano", 16: "Bergamo", 17: "Brescia", 18: "Pavia", 19: "Cremona",
+              20: "Mantova", 97: "Lecco", 98: "Lodi", 108: "Monza e della Brianza"}  # Lombardy
+
+
+def province_from_istat(code) -> str:
+    """Province name from a municipality's ISTAT code (province code = code // 1000); '' when unknown."""
+    try:
+        return _PROVINCES.get(int(code) // 1000, "")
+    except (TypeError, ValueError):
+        return ""
 QUEUE_FILL_IN = ("owner_from_visura", "owner_type", "vat_or_tax_code_company_only", "registered_office", "notes")  # an older version's
 
 
@@ -632,7 +644,15 @@ def visura_queue(ws: pd.DataFrame, n: int = 50) -> pd.DataFrame:
     stop = ~blank("known_company") | ~blank("owner_from_visura") | ws.get("do_not_contact", pd.Series("", index=ws.index)).map(is_objection)
     stop_parcel = stop.groupby(ref).transform("any")
     q = ws[(ref != "").values & ~stop_parcel.values].assign(_prio=lambda d: pd.to_numeric(d["priority"], errors="coerce"))
-    q = q.sort_values("_prio", kind="stable").drop_duplicates("parcel_ref").head(n)
+    q = q.sort_values("_prio", kind="stable").drop_duplicates("parcel_ref").head(n).copy()
+    col = lambda c: q[c].map(_text).str.strip() if c in q else pd.Series("", index=q.index)
+    q["ade_provincia"] = col("provincia").str.upper()
+    q["ade_comune"] = col("comune").str.upper()
+    q["ade_catasto"] = "Fabbricati (se non trovato: Terreni)"
+    q["ade_sezione"] = ""        # urban section: blank for these municipalities
+    q["ade_foglio"] = col("foglio")
+    q["ade_particella"] = col("particella")
+    q["ade_subalterno"] = ""     # blank lists every unit of the building
     return q[[c for c in QUEUE_COLS if c in q]].reset_index(drop=True)
 
 

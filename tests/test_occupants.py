@@ -665,3 +665,22 @@ def test_save_visura_queue_never_overwrites_typed_values_silently(tmp_path):
     assert backup.name == "visura_queue.backup-20261114-093000.csv" and backup.read_bytes() == raw
     assert occ.read_table(path).columns.tolist() == occ.QUEUE_COLS
     assert occ.save_visura_queue(q, path) is None and len(list(tmp_path.glob("*.backup-*"))) == 1  # nothing typed: no backup
+
+
+def test_visura_queue_has_the_fields_the_ade_form_asks_for():
+    ws = pd.DataFrame([{"priority": "1", "roof_id": "7", "comune": "Verolanuova", "provincia": "Brescia", "area_m2": "31771",
+                        "model_score": "0.84", "comune_code": "L777", "foglio": "15", "particella": "124",
+                        "parcel_ref": "L777_001500.124", "address": "", "known_company": "", "owner_from_visura": "",
+                        "do_not_contact": ""}])
+    row = occ.visura_queue(ws).iloc[0]
+    assert row["ade_provincia"] == "BRESCIA"
+    assert row["ade_comune"] == "VEROLANUOVA"
+    assert row["ade_catasto"].startswith("Fabbricati")
+    assert row["ade_sezione"] == "" and row["ade_subalterno"] == ""
+    assert row["ade_foglio"] == "15" and row["ade_particella"] == "124"
+
+
+def test_province_name_from_istat_code():
+    assert occ.province_from_istat(17196) == "Brescia"
+    assert occ.province_from_istat(108012) == "Monza e della Brianza"
+    assert occ.province_from_istat(None) == ""

@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from roofwatch.cadastre import assign_parcels, fetch_parcels
 from roofwatch.occupants import (WORKSHEET_MANUAL as MANUAL, assign_places, drop_suppressed, known_company, load_suppressed_domains,
                                  nearest_address, nearest_point, parcel_companies, prepare_aia, prepare_osm, read_orphans, read_worksheet,
-                                 save_visura_queue, save_worksheet, suppressed_names, visura_queue, write_csv)
+                                 province_from_istat, save_visura_queue, save_worksheet, suppressed_names, visura_queue, write_csv)
 
 THRESH, MIN_M2, CELL_DEG = 0.7, 500, 0.005  # ~400-550 m cells for parcel requests
 RAW, OUT = ROOT / "data/raw", ROOT / "outputs"
@@ -45,6 +45,9 @@ oof = pd.read_parquet(ROOT / "outputs/aerial_oof.parquet")[["roof_id", "p"]]
 r = roofs.merge(oof, on="roof_id")
 r = r[(r.p >= THRESH) & (r.area_m2 >= MIN_M2) & r.label.isin(["ac", "none"])].copy()
 r["status"] = np.where(r.label == "ac", "on ARPA map, model agrees", "suspected, not on ARPA map")
+# province for the Agenzia delle Entrate visura form, from each municipality's ISTAT code
+_mun = gpd.read_file(RAW / "lombardy_pilot.gpkg", layer="municipalities")
+r["provincia"] = r["comune"].map(dict(zip(_mun["NOME_COM"], _mun["ISTAT"].map(province_from_istat)))).fillna("")
 print(len(r), "candidate roofs", r.status.value_counts().to_dict(), flush=True)
 
 # cadastral parcels, fetched per small cell around candidates and cached
@@ -142,7 +145,7 @@ for c in MANUAL:
     r[c] = ""
 r = r.sort_values(["area_m2", "roof_id"], ascending=[False, True]).reset_index(drop=True)
 r.insert(0, "priority", range(1, len(r) + 1))
-cols = ["priority", "roof_id", "status", "comune", "area_m2", "p", "solar_panels_score", "comune_code", "foglio", "particella", "parcel_ref", "parcel_share",
+cols = ["priority", "roof_id", "status", "comune", "provincia", "area_m2", "p", "solar_panels_score", "comune_code", "foglio", "particella", "parcel_ref", "parcel_share",
         "other_parcels", "address", "address_dist_m", "business_name", "business_category", "business_website", "business_address",
         "business_dist_m", "n_businesses", "n_nearby_businesses", "nearby_business_name", "nearby_business_website", "aia_company",
         "aia_type", "aia_address", "aia_dist_m", "osm_name", "osm_operator", "osm_kind", "osm_website", "osm_dist_m", "known_company",
