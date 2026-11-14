@@ -23,7 +23,7 @@ import shapely
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from roofwatch.grants import load_grants, roof_grants  # noqa: E402
+from roofwatch.grants import confirmed_owner_type, contact_stage, load_grants, roof_grants  # noqa: E402
 from roofwatch.panel import REGISTER_JS, build_details, load_inputs, panel_html  # noqa: E402
 from roofwatch.tabs import grants_tab, tabs_html  # noqa: E402
 
@@ -189,10 +189,24 @@ def main(raw: Path = RAW, proc: Path = PROC, out: Path = OUT, html: Path | None 
     m.get_root().html.add_child(folium.Element(panel_html(details, m.get_name(), groups, chips)))
     add_boxes(m, r, inputs["companies"] is not None, aia="aia_company" in ws.columns, osm="osm_name" in ws.columns)
     if grants:  # the Grants tab: one card per scheme, with the candidate roofs it may fit (links open them on the map)
-        groups_by_roof = dict(zip(clickable["roof_id"].astype(int), clickable["group"].fillna("") if "group" in clickable else [""] * len(clickable)))
-        tab_roofs = [{"roof_id": int(rid), "comune": d.get("comune") or "", "area_m2": area.get(int(rid)),
-                      "group": groups_by_roof.get(int(rid), ""), "owner_type": d["grants"]["owner_type"], "why": d["grants"]["why"],
-                      "dnc": bool(d.get("do_not_contact"))} for rid, d in details.items()]
+        cl = clickable.set_index(clickable["roof_id"].astype(int))
+        col = lambda c: cl[c] if c in cl else pd.Series(None, index=cl.index)
+        num = lambda v: None if v is None or pd.isna(v) else round(float(v), 2)
+        tab_roofs = []
+        for rid, d in details.items():
+            rid = int(rid)
+            w = ws_rows.get(rid, {})
+            company_record = any(not c.get("next_door") and not c.get("sole_trader") for c in d.get("companies", []))
+            here = [o.get("name") for o in d.get("occupants", []) if o.get("name")]
+            tab_roofs.append({
+                "roof_id": rid, "comune": d.get("comune") or "", "area_m2": area.get(rid), "group": col("group").get(rid) or "",
+                "p": num(col("p").get(rid)), "p_pv": num(col("p_pv").get(rid)),
+                "owner_type": d["grants"]["owner_type"], "why": d["grants"]["why"],
+                "confirmed_type": confirmed_owner_type(w.get("owner_type")),
+                "stage": contact_stage(w, company_record=company_record), "dnc": bool(d.get("do_not_contact")),
+                "company": (w.get("known_company") or (here[0] if here else "")) if not d.get("do_not_contact") else "",
+                "parcel_ref": w.get("parcel_ref") or "", "foglio": w.get("foglio") or "", "particella": w.get("particella") or "",
+                "provincia": w.get("provincia") or "", "address": w.get("address") or d.get("address") or ""})
         m.get_root().html.add_child(folium.Element(tabs_html({"grants": ("Grants", grants_tab(grants, today, tab_roofs))})))
     folium.LayerControl(collapsed=False).add_to(m)
     m.save(str(html))

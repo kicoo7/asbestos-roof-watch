@@ -858,7 +858,9 @@ JS = r"""
       (layers[id] = layers[id] || []).push(layer);
       layer.on("click", function (e) { L.DomEvent.stopPropagation(e); select(id, {reveal: true}); });
     },
-    select: select, close: close
+    select: select, close: close,
+    feature: function (id) { var ls = layers[String(id)]; return ls && ls.length ? ls[0].feature : null; },  // for the Grants tab
+    map: function () { return map; }
   };
   document.getElementById("rw-close").onclick = close;
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });

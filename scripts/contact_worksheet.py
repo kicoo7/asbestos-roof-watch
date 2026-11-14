@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from datetime import date
 
 from roofwatch.cadastre import assign_parcels, fetch_parcels
-from roofwatch.grants import fit_summary, grant_fit, likely_owner_type, load_grants
+from roofwatch.grants import fit_summary, grant_fit, grant_lists, likely_owner_type, load_grants
 from roofwatch.occupants import (WORKSHEET_MANUAL as MANUAL, assign_places, drop_suppressed, known_company, load_suppressed_domains,
                                  nearest_address, nearest_point, parcel_companies, prepare_aia, prepare_osm, read_orphans, read_worksheet,
                                  province_from_istat, save_visura_queue, save_worksheet, suppressed_names, visura_queue, write_csv)
@@ -187,6 +187,14 @@ write_csv(addr, OUT / "roof_addresses.csv")
 # owner-lookup queue, derived from the worksheet as written (objections spread, owners typed): read only, rebuilt every run
 queue = visura_queue(read_worksheet(WS))
 qb = save_visura_queue(queue, OUT / "visura_queue.csv")
+# per scheme: eligible roofs ranked by score, and the owner lookups that would confirm the most valuable ones
+if _grants_path.exists():
+    _gl_dir = OUT / "grant_lists"
+    _gl_dir.mkdir(exist_ok=True)
+    for _gid, (_elig, _look) in grant_lists(read_worksheet(WS), _grants).items():
+        write_csv(_elig, _gl_dir / f"{_gid}.csv")
+        write_csv(_look, _gl_dir / f"{_gid}_owner_lookups.csv")
+        print(f"grant list {_gid}: {len(_elig)} eligible, {len(_look)} owner lookups", flush=True)
 if qb:
     print(f"visura queue: the old file held typed values, saved as {qb.name} (type lookups into contact_worksheet.csv instead)")
 print(f"visura queue: {len(queue)} parcels (largest candidate parcels with no company, no owner typed and no objection)")
