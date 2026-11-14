@@ -45,16 +45,24 @@ The 12 highest-scored "no PV" roofs all show panels in 2024, installed after the
 
 Applied to the Brescia pilot, 4,418 of 5,781 roofs >= 500 m2 show no panels (about 5.4 km2 of roof).
 
-**Owner and occupant linkage** (`scripts/contact_worksheet.py`, `docs/CONTACTING.md`)
+**Owner and occupant linkage** (`scripts/contact_worksheet.py`, `scripts/enrich_companies.py`, `docs/CONTACTING.md`)
 
-Each candidate roof (score >= 0.7, >= 500 m2) gets three things:
-- its cadastral parcel (town code, sheet, parcel) from the Agenzia delle Entrate's open cadastral WFS (CC BY 4.0)
-- the nearest address from Overture
-- the business located at the building from Overture places
+Each candidate roof (score >= 0.7, >= 500 m2; 1,258 roofs) gets:
+- its cadastral parcel (town code, sheet, parcel) from the Agenzia delle Entrate's open cadastral WFS (CC BY 4.0): 96% of candidates
+- the nearest address from Overture: 53%
+- the businesses listed at the building from Overture places: 193 candidates (15%), 75 of them with two or more
+- the businesses listed next door (within 30 m, at another building): a further 136 candidates have only these
+- for each business with its own website, its public company record: VAT number, legal name and form, and for VIES-confirmed companies the registered office
+
+How businesses are attached to roofs changed on 14 Nov 2026. A listing now belongs to the building it is inside, or else to the single nearest building. Before, each candidate took the nearest listing within 30 m, which gave 329 candidates a business but put 136 of those on a building the listing does not belong to (about 30 of the listings sit inside another building). Those 136 now show the listing as "next door".
+
+429 candidates share their parcel with another candidate (167 parcels). The map panel lists them together, since they are one property.
 
 Owner names are not open data. Look them up one at a time with a visura per immobile. Phones and emails are left out on purpose; see `docs/CONTACTING.md`.
 
-Outputs (local, not committed): `outputs/aerial_map.html`, `outputs/contact_worksheet.csv`, `outputs/aerial_top_predictions.png`, `outputs/pv_top_predictions.png`.
+In the map, clicking a roof opens a panel with all of the above (`src/roofwatch/panel.py`). Roofs under 500 m2 carry a note that the model did not pass its accuracy test at that size.
+
+Outputs (local, not committed): `outputs/aerial_map.html`, `outputs/contact_worksheet.csv`, `outputs/roof_occupants.csv`, `outputs/roof_addresses.csv`, `outputs/company_register.csv`, `outputs/aerial_top_predictions.png`, `outputs/pv_top_predictions.png`.
 
 ## Decision (T1.8): no-go for asbestos detection from Sentinel-2
 

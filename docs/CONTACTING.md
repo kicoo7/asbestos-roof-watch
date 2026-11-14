@@ -11,14 +11,63 @@ For each candidate roof (score >= 0.7, at least 500 m2, Brescia pilot):
 | `status`, `model_score` | ARPA Lombardia 2020 map + aerial model | see DATA.md |
 | `comune_code`, `foglio`, `particella`, `parcel_ref` | Agenzia delle Entrate cadastral parcels (INSPIRE WFS) | CC BY 4.0 |
 | `address` | Overture addresses (Italian countrywide address data) | see Overture |
-| `business_name`, `business_category`, `business_website` | Overture places, within 30 m of the roof | CDLA Permissive 2.0 |
-| `owner_from_visura` ... `notes` | empty, for you to fill in | |
+| `business_name`, `business_category`, `business_website`, `business_address` | Overture places: the best listing at the building (inside the footprint, or within 30 m and nearer to this roof than to any other building) | CDLA Permissive 2.0 |
+| `n_businesses` | how many businesses are listed at the building (up to 5) | |
+| `n_nearby_businesses`, `nearby_business_name`, `nearby_business_website` | the first business listed next door: within 30 m, but at another building. An adjoining building comes first, then the nearest. On a multi-building site this is often the right contact | |
+| `owner_from_visura` ... `notes` | empty, for you to fill in. Kept when the worksheet is regenerated (see below) | |
 
 What the worksheet does not give you:
 - **Owner names.** They are not open data. Look them up one property at a time with a *visura per immobile* from the Agenzia delle Entrate, using `comune_code`, `foglio` and `particella` (log in with SPID, CIE or CNS).
 - **Phone numbers and emails.** Left out on purpose; see below.
 
 The business at a building is often a tenant, not the owner. It is still usually the right first contact for an industrial roof.
+
+## What you type is kept
+
+`scripts/contact_worksheet.py` never wipes the hand-filled columns. On each run it:
+
+- reads the existing worksheet as text and carries `owner_from_visura` ... `notes` (and any column you added) over to the new file, when both `roof_id` and `parcel_ref` still match;
+- first saves the old file as `outputs/contact_worksheet.backup-YYYYmmdd-HHMMSS.csv`, whenever it held anything typed by hand;
+- appends rows it cannot carry over (the roof is no longer a candidate, or its parcel changed) to `outputs/contact_worksheet_orphans.csv`, with the reason. Check that file after each run and copy the rows back by hand.
+
+You can edit the worksheet in a spreadsheet. A file re-saved with `;` or tab separators, or in Windows-1252, is read as it is. If the header row is lost (no `roof_id` column), the script and the map stop at once and write nothing. Columns you add are kept.
+
+## An objection belongs to the property
+
+Fill `do_not_contact` with anything (for example `yes` and the date). Empty, `0`, `no` and `false` mean "may contact". The mark is never lost by regenerating the worksheet. After a run of `scripts/contact_worksheet.py`, the worksheet and the map mark the same candidate roofs (the map applies a newly typed objection to the whole parcel at once; the worksheet does so on its next run):
+
+- Every objection spreads to all current rows on the same parcel, with a note saying which roof it came from.
+- When a row with `do_not_contact` cannot be carried over (the roof left the candidates, or its parcel changed), the objection still reaches the roof's new row and every row on its old and new parcel. This is repeated on every run from the orphans file. If it reaches no current row, the script prints a warning on every run.
+- In the map, such roofs show a red "Do not contact" banner. So does a roof that is no longer a candidate but has an objection in the orphans file.
+- To withdraw an objection, clear `do_not_contact` on every row of that parcel in `contact_worksheet.csv`, and on the rows about that roof or parcel in `contact_worksheet_orphans.csv`. Otherwise the next run puts it back.
+- Log a second contact in the same row. A duplicated row is moved to the orphans file on the next run.
+- If you edit `contact_worksheet_orphans.csv`, keep its header row. Without it the script and the map stop.
+
+To make the company step forget a business as well, list its website domain or VAT number in `outputs/company_suppress.csv` (columns `domain` and/or `vat`; you create this file). The domain also covers its subdomains. `scripts/enrich_companies.py` then deletes what it stored about it and never looks it up again; `scripts/contact_worksheet.py` drops its listing from the worksheet and from `roof_occupants.csv`; and the listing disappears from the map, with its company record (until the worksheet is rerun the map shows it as "Business listing hidden: do not contact"). A listed domain also covers the same business's other websites (same VAT number). After editing the list, run `enrich_companies.py`, then `contact_worksheet.py`, then `aerial_map.py`, in that order. A listing with no website cannot be put on the list. To lift a suppression, remove the line and run the three scripts again; the company record returns on the next `enrich_companies.py`, which goes online for it.
+
+## The map panel
+
+Click a roof in `outputs/aerial_map.html` to see what is publicly known about who is there. The panel shows, in this order:
+
+| Section | Content | Source |
+|---|---|---|
+| Property | address, cadastral reference (with a copy button), other candidate roofs on the same parcel | Overture addresses; Agenzia delle Entrate parcels |
+| Businesses at this building | up to 5 listings: name, category, website, address | Overture places (`outputs/roof_occupants.csv`) |
+| Next door (within 30 m) | businesses listed at a neighbouring building, marked "adjoining building" when the two buildings touch | same |
+| Company public record | VAT number (Partita IVA), legal name and form, registered office, REA | the business's own website, checked against the EU VIES service (`outputs/company_register.csv`) |
+| Owner (from your own visura) | what you typed in the worksheet | you |
+| Look up | links for one-at-a-time lookups: web search, Agenzia delle Entrate (visura), business register, VIES | |
+
+How to read the company record:
+
+- **It says who occupies the building, not who owns it.** The owner still comes from a visura.
+- **Registered office** is shown only for companies that VIES confirms (S.r.l., S.p.A., S.n.c. and so on). It is where a formal letter should go.
+- **Sole traders and unknown legal forms:** the legal name is often the trader's own name, and the VIES address can be a home address. The address is left out and the panel marks the record "treat as personal data". The rules of thumb below apply to it.
+- **"Not in the EU VIES register"** usually means the business does not trade within the EU. It does not mean the number is fake.
+- **Notes on a record:** "Legal name differs from the listing" means the name on the website does not look like the listed business, so check it is the same one. "Chain or shared website" means several differently named businesses list that website, so the record may be the franchisor's. "Read over a connection with an invalid certificate" means the site's certificate could not be verified.
+- No phone numbers, emails, PEC addresses or names of directors are kept or shown, by design. A "website" that is really a WhatsApp or Telegram link, or that carries a phone number or e-mail address, is dropped.
+
+On a roof marked `do_not_contact` the panel hides the owner name, the notes and the outcome, and leaves the roof out of the map's search. It also hides what could name the person: company records of sole traders at or next door to that roof, and business listings that are linked to a sole trader's record or share two or more words with that sole trader's legal name. A listing with no company record is still shown, even if its name is a person's. If it has a website, put that on the suppression list above. Hidden listings show as "Business listing hidden: do not contact", on that roof and on its neighbours. Listings of companies stay. This hides more than strictly needed, on purpose.
 
 ## Rules of thumb
 
@@ -27,8 +76,9 @@ The business at a building is often a tenant, not the owner. It is still usually
 3. **No cold emails, no cold calls from scraped numbers.** In Italy, unsolicited marketing emails need prior consent, even to companies. Marketing calls are not allowed to numbers on the opt-out register (Registro Pubblico delle Opposizioni). Certified email (PEC) addresses from INI-PEC are for official communications, not marketing.
 4. **Tell them where the information came from (GDPR art. 14).** Data source, your purpose, how long you keep their data, and how to object. The letter template below includes this.
 5. **Say "suspected", never "your roof is asbestos".** The ARPA map and the model can be wrong or out of date. Only an inspection or a lab test confirms asbestos.
-6. **Honour "no".** If someone objects, mark `do_not_contact` and delete their personal data, apart from what you need to remember not to contact them again.
-7. **Keep the worksheet private.** It stays in `outputs/` (not committed) and should not be shared.
+6. **Honour "no".** If someone objects, mark `do_not_contact` and delete their personal data, apart from what you need to remember not to contact them again. The mark is kept when the worksheet is regenerated and shows in the map (see "An objection belongs to the property").
+7. **Keep the worksheet and the map private.** They stay in `outputs/` (not committed) and should not be shared. The same goes for `roof_occupants.csv`, `roof_addresses.csv` and `company_register.csv`.
+8. **A sole trader is a person.** A company's legal name and registered office are not personal data. A sole trader's name is. Treat it like an owner's name from a visura.
 
 ## Useful facts for the conversation
 

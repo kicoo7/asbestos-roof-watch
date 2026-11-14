@@ -65,3 +65,34 @@ Piedmont's regional topographic database (BDTRE) was not compared on its own. Pi
 ## Building age: GHSL
 
 `GHS_BUILT_S_E{1975..2020}_GLOBE_R2023A_54009_100_V1_0`, tile R4_C19, from the JRC FTP server. 100 m built-up surface per 5-year epoch. Feature `built_year` = the first epoch whose built-up surface reaches half of the 2020 value at the roof's location. Licence: CC BY 4.0 (European Commission, JRC).
+
+## Addresses and businesses: Overture Maps
+
+| Item | Value |
+|---|---|
+| Files | `data/raw/overture_addresses_pilot.parquet` (64,925 address points), `data/raw/overture_places_pilot.parquet` (6,046 places), Brescia pilot bbox |
+| Places fields kept | `id`, `name`, `category`, `taxonomy`, `confidence`, `website`, `address`, `locality`, `postcode`, `operating_status`, `src`. The phone, e-mail and social fields were not downloaded |
+| Website filter | The `website` field often holds a social page (for example Facebook) instead of the business's own site, and sometimes a WhatsApp or Telegram link or a URL carrying a phone number or e-mail address. Social pages are kept as links but not crawled. `roofwatch.urls.public_website` drops messaging links, cuts a URL back to the site root when its path carries a contact detail, and drops query strings, before anything is stored, fetched or shown. A phone number or e-mail address inside a business name is removed too |
+| Places sources (`src`) | BrightQuery 3,035, Meta 2,307, Microsoft 348, AllThePlaces 176, Foursquare 138, others 42 |
+| Licence | Places: CDLA Permissive 2.0. Addresses: see Overture's attribution page for the Italian source |
+| Known gap | The DuckDB query that produced these two files is not in the repo yet |
+| Used by | `scripts/contact_worksheet.py` -> `outputs/roof_occupants.csv`, `outputs/roof_addresses.csv` |
+
+BrightQuery listings come from company-registry style data, so a "business name" can be a sole trader's personal name.
+
+## Company public record: business websites and EU VIES
+
+Checked on 14 Nov 2026. `scripts/enrich_companies.py` -> `outputs/company_register.csv`, one row per website domain.
+
+| Item | Value |
+|---|---|
+| Source 1 | The business's own website, as listed in Overture places: the home page plus at most 2 contact or legal pages. Italian businesses must show their VAT number (Partita IVA) on their website (commonly cited as art. 35 DPR 633/1972; not verified here) |
+| Crawling | robots.txt respected per host, including the target of a redirect (the redirected request itself is made before that check; the page is not used if disallowed). Crawl-delay honoured up to 30 s; longer means home page only. robots.txt answering 429 means no crawl in that run. User-Agent `roofwatch-prototype (research)`; at least 1 s between requests to a site and its subdomains; 4 sites in parallel; pages cut at 1.5 MB |
+| Source 2 | EU VIES REST service, `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/<number>`. No key; at most 1 request per second. Fields used: `isValid`, `userError`, `name`, `address` |
+| Fields written | `domain`, `website`, `status`, `vat`, `legal_name`, `legal_form`, `entity_type`, `registered_office`, `vies_valid`, `vies_checked_on`, `rea`, `source_url`, `fetched_on`, `tls_unverified` |
+| Not kept | Phones, emails, PEC addresses, names of directors or contact persons. For sole traders and unknown legal forms the VIES address is neither written nor cached |
+| Suppression | Optional `outputs/company_suppress.csv` (columns `domain` and/or `vat`), kept by hand after an objection. A listed business gets status `suppressed` with every other column empty, as do its other websites with the same VAT number. Its cached record is replaced by a marker that holds no VAT number, name or URL, its VIES answer is deleted, and it is not fetched or looked up again |
+| Caches | One small record per domain, `data/raw/company_pages/<domain>/record.json` (status, VAT, legal name, REA, source page, dates), and VIES answers in `data/raw/vies/<vat>.json`. Page bodies hold e-mail addresses and phone numbers, so they are deleted as soon as the record is written (`--keep-pages` keeps them, for debugging only). Private, not committed. A rerun makes no requests; `--retry-failed` retries failed fetches |
+| Pilot run | 1,871 domains: VAT number found for 867, of which VIES confirmed 726 (553 companies, 173 sole traders or unknown form) and 141 are not in VIES. 509 sites could not be read (about 270 no longer exist) and 445 show no VAT number. 6 source pages were read without certificate verification (`tls_unverified`) |
+
+`vies_valid` false does not mean a fake number: an Italian VAT number is in VIES only when its holder registered for intra-EU trade.
