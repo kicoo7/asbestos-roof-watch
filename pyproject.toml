@@ -1,7 +1,7 @@
 [project]
 name = "roofwatch"
 version = "0.1.0"
-description = "Weekly Sentinel-2 monitor of suspected asbestos-cement roofs (pilot: Lombardy)"
+description = "Finds and monitors suspected asbestos-cement roofs in Italy from free Sentinel-2 and aerial imagery (prototype)"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "pystac-client",

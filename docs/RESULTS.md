@@ -158,7 +158,7 @@ What the numbers say:
 
 ## Lombardy
 
-The plan chose Lombardy. I could not find its data at first, so the pilot moved to Piedmont. Later in the work, a file not produced by this pipeline (`docs/VALIDATION.md`) pointed to a public ArcGIS service:
+The plan chose Lombardy. I could not find its data at first, so the pilot moved to Piedmont. Later in the work, a public ArcGIS service turned up on a server path not checked before:
 
 `https://www.cartografia.servizirl.it/expo/rest/services/gpt/coperture_amianto/MapServer`
 
